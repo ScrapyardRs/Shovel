@@ -140,6 +140,8 @@ where
                         hash_server_id("", &shared_secret, &private_key_to_der(&key))
                     );
 
+                    log::trace!("Called: {url}");
+
                     log::trace!("Calling URL!");
 
                     let url = url
