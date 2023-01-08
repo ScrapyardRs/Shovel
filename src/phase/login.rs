@@ -4,16 +4,18 @@ use crate::phase::ConnectionInformation;
 use drax::prelude::Uuid;
 use drax::transport::encryption::{DecryptRead, Decryption, EncryptedWriter, Encryption};
 use drax::{err_explain, throw_explain};
+use hyper::body::to_bytes;
+use hyper::{Body, Request};
 use mcprotocol::clientbound::login::ClientboundLoginRegistry::LoginDisconnect;
 use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::login::ServerBoundLoginRegsitry;
 use num_bigint::BigInt;
 use rand::RngCore;
-use reqwest::StatusCode;
 use rsa::signature::digest::crypto_common::KeyIvInit;
 use rsa::PaddingScheme;
 use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::TcpStream;
 
 #[inline]
 fn hash_server_id(server_id: &str, shared_secret: &[u8], public_key: &[u8]) -> String {
@@ -140,23 +142,61 @@ where
 
                     log::trace!("Calling URL!");
 
-                    let response = match reqwest::get(url).await {
-                        Ok(response) => response,
-                        Err(err) => {
-                            log::trace!("Oh no!");
-                            log::trace!("Reqwest error {}!", err);
-                            write
-                                .write_packet(&LoginDisconnect {
-                                    reason: "Failed to authenticate with mojang.".into(),
-                                })
-                                .await?;
-                            throw_explain!(format!("Mojang failed to auth {err}"))
+                    let url = url
+                        .parse::<hyper::Uri>()
+                        .map_err(|err| err_explain!(format!("Error parsing hyper URI: {}", err)))?;
+
+                    let host = url
+                        .host()
+                        .map(Ok)
+                        .unwrap_or_else(|| throw_explain!("Failed to resolve host for URI"))?;
+                    let port = url.port_u16().unwrap_or(80);
+
+                    let address = format!("{}:{}", host, port);
+
+                    let stream = TcpStream::connect(address).await?;
+
+                    let (mut sender, conn) =
+                        hyper::client::conn::handshake(stream)
+                            .await
+                            .map_err(|err| {
+                                err_explain!(format!(
+                                    "Failed to initiate handshake for hyper: {}",
+                                    err
+                                ))
+                            })?;
+
+                    let conn_handle = tokio::task::spawn(async move {
+                        if let Err(err) = conn.await {
+                            log::error!("Hyper connection failed: {:?}", err);
                         }
-                    };
+                    });
+
+                    // The authority of our URL will be the hostname of the httpbin remote
+                    let authority = url
+                        .authority()
+                        .map(Ok)
+                        .unwrap_or_else(|| throw_explain!("Error receiving url authority"))?
+                        .clone();
+
+                    let req = Request::builder()
+                        .uri(url)
+                        .header(hyper::header::HOST, authority.as_str())
+                        .body(Body::empty())
+                        .map_err(|err| {
+                            err_explain!(format!("Error setting up hyper request: {}", err))
+                        })?;
+
+                    let res = sender
+                        .send_request(req)
+                        .await
+                        .map_err(|err| err_explain!(format!("Error sending request: {}", err)))?;
+
+                    log::trace!("Response status: {}", res.status());
 
                     log::trace!("Url call processed!");
 
-                    if response.status().as_u16() == 204 {
+                    if res.status().as_u16() == 204 {
                         log::trace!("State 204!");
                         write
                             .write_packet(&LoginDisconnect {
@@ -164,32 +204,36 @@ where
                             })
                             .await?;
                         throw_explain!("Mojang failed to auth; No profile found")
-                    } else if response.status().as_u16() != 200 {
-                        log::trace!("Bad status code: {}", response.status().as_u16());
+                    } else if res.status().as_u16() != 200 {
+                        log::trace!("Bad status code: {}", res.status().as_u16());
                         write
                             .write_packet(&LoginDisconnect {
                                 reason: format!(
                                     "Failed to authenticate with mojang; ({})",
-                                    response.status()
+                                    res.status()
                                 )
                                 .into(),
                             })
                             .await?;
-                        throw_explain!(format!("Mojang failed to auth, {}", response.status()))
+                        throw_explain!(format!("Mojang failed to auth, {}", res.status()))
                     }
 
                     log::trace!("Deciphering json");
 
-                    let profile = match response.json::<GameProfile>().await {
+                    let body = to_bytes(res.into_body()).await.map_err(|err| {
+                        err_explain!(format!("Failed to process bytes from response, {}", err))
+                    })?;
+                    conn_handle.abort(); // clean up client
+
+                    let profile: GameProfile = match serde_json::from_slice(&body) {
                         Ok(profile) => profile,
                         Err(err) => {
-                            log::trace!("Error forming json response");
                             write
                                 .write_packet(&LoginDisconnect {
-                                    reason: "Failed to parse profile".into(),
+                                    reason: "Invalid game profile found when parsing".into(),
                                 })
                                 .await?;
-                            throw_explain!(format!("{err}"))
+                            throw_explain!(format!("Error retrieving profile: {}", err))
                         }
                     };
 
