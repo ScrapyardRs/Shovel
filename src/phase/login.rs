@@ -22,13 +22,13 @@ async fn call_mojang_auth(
     route: String,
     params: String,
 ) -> drax::prelude::Result<GameProfile> {
-    let url = format!("{server}/{route}{params}");
+    let url = format!("{server}{route}{params}");
 
     log::trace!("Called: {url}");
 
     log::trace!("Calling URL!");
 
-    let url = url
+    let mut url = url
         .parse::<hyper::Uri>()
         .map_err(|err| err_explain!(format!("Error parsing hyper URI: {}", err)))?;
 
@@ -55,12 +55,7 @@ async fn call_mojang_auth(
 
     let mut route = route.clone();
     loop {
-        let url = format!("{server}/{route}{params}");
         log::trace!("Sub Called: {url}");
-        let url = url
-            .parse::<hyper::Uri>()
-            .map_err(|err| err_explain!(format!("Error parsing hyper URI: {}", err)))?;
-
         let authority = url
             .authority()
             .map(Ok)
@@ -89,7 +84,10 @@ async fn call_mojang_auth(
                     let redirect = redirect.to_str().map_err(|err| {
                         err_explain!(format!("Error converting redirect to string: {}", err))
                     })?;
-                    route = redirect.to_string();
+                    url = redirect
+                        .to_string()
+                        .parse::<hyper::Uri>()
+                        .map_err(|err| err_explain!(format!("Error parsing hyper URI: {}", err)))?;
                     continue;
                 } else {
                     throw_explain!("No redirect location found!");
