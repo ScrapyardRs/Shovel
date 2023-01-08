@@ -1,8 +1,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use drax::{PinnedLivelyResult, PinnedResult};
 use drax::prelude::ErrorType;
+use drax::{err_explain, throw_explain, PinnedLivelyResult, PinnedResult};
 use mcprotocol::clientbound::status::StatusResponse;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
@@ -109,9 +109,16 @@ where
             let (stream, addr) = listener.accept().await?;
             let client_count = client_count.clone();
             let key_clone = key.clone();
-            let status_builder = status_builder.as_ref().cloned().unwrap();
+            let status_builder = status_builder
+                .as_ref()
+                .cloned()
+                .map(Ok)
+                .unwrap_or_else(|| throw_explain!("No status builder provided."))?;
 
-            let rt = Builder::new_current_thread().enable_all().build().unwrap();
+            let rt = Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|err| err_explain!(format!("Error setting up thread builder: {}", err)))?;
 
             std::thread::spawn(move || {
                 let local = LocalSet::new();
@@ -126,25 +133,36 @@ where
                         addr,
                     ))
                     .await
-                    .unwrap()
                     {
-                        Ok(Some(client)) => {
+                        Ok(Ok(Some(client))) => {
+                            let client_name = client.profile.name.clone();
                             // new player added
                             client_count.fetch_add(1, Ordering::SeqCst);
-                            if let Err(err) = tokio::task::spawn_local((client_acceptor)(client))
-                                .await
-                                .unwrap()
-                            {
-                                log::error!("Error processing client: {}", err)
+                            match tokio::task::spawn_local((client_acceptor)(client)).await {
+                                Ok(Ok(_)) => {
+                                    println!("Client {} disconnected naturally.", client_name);
+                                }
+                                Ok(Err(err)) if matches!(err.error_type, ErrorType::EOF) => {
+                                    log::info!("Client {} disconnected with EOF.", client_name);
+                                }
+                                Ok(Err(err)) => {
+                                    log::error!("Transport error in client acceptor: {}", err);
+                                }
+                                Err(err) => {
+                                    log::error!("Join error in client acceptor: {}", err);
+                                }
                             }
                             // remove new player
                             client_count.fetch_sub(1, Ordering::SeqCst);
                         }
-                        Ok(None) => {}
-                        Err(e) => {
+                        Ok(Ok(None)) => {}
+                        Ok(Err(e)) => {
                             if !matches!(e.error_type, ErrorType::EOF) {
                                 log::error!("Error processing client: {}", e);
                             }
+                        }
+                        Err(e) => {
+                            log::error!("Join error processing client: {}", e);
                         }
                     }
                 });

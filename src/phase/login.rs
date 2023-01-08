@@ -70,6 +70,7 @@ where
     loop {
         match read.read_packet::<ServerBoundLoginRegsitry>().await? {
             ServerBoundLoginRegsitry::Hello { name, profile_id } => {
+                log::trace!("HELLO!");
                 if let LoginState::ExpectingHello = state {
                     let key_der = private_key_to_der(&key);
                     let mut verify_token = [0, 0, 0, 0];
@@ -101,6 +102,7 @@ where
                 key_bytes,
                 encrypted_challenge,
             } => {
+                log::trace!("KEY!");
                 if let LoginState::ExpectingKeyResponse {
                     challenge,
                     name,
@@ -153,6 +155,7 @@ where
                     } else if response.status()
                         != StatusCode::from_u16(200).expect("200 is a valid code")
                     {
+                        log::trace!("Bad status code: {}", response.status());
                         write
                             .write_packet(&LoginDisconnect {
                                 reason: format!(
@@ -168,6 +171,7 @@ where
                     let profile = match response.json::<GameProfile>().await {
                         Ok(profile) => profile,
                         Err(err) => {
+                            log::trace!("Error forming json response");
                             write
                                 .write_packet(&LoginDisconnect {
                                     reason: "Failed to parse profile".into(),
@@ -178,6 +182,7 @@ where
                     };
 
                     if matches!(&profile_id, Some(id) if id.ne(&profile.id)) {
+                        log::trace!("Invalid profile ID");
                         write
                             .write_packet(&LoginDisconnect {
                                 reason: "Invalid profile id".into(),
@@ -191,6 +196,8 @@ where
 
                     match (encryption, decryption) {
                         (Ok(encryption), Ok(decryption)) => {
+                            log::trace!("Creating mcclient");
+
                             let client = MCClient::new(
                                 DecryptRead::new(read, decryption),
                                 EncryptedWriter::new(write, encryption),
@@ -202,6 +209,7 @@ where
                             return Ok(client);
                         }
                         (Err(err), Ok(_)) | (Ok(_), Err(err)) => {
+                            log::trace!("(err, ok) | (ok, err)");
                             write
                                 .write_packet(&LoginDisconnect {
                                     reason: "Failed to initialize encryption or decryption.".into(),
@@ -212,6 +220,7 @@ where
                             ))
                         }
                         (Err(enc_err), Err(dec_err)) => {
+                            log::trace!("(err, err)");
                             write
                                 .write_packet(&LoginDisconnect {
                                     reason: "Failed to initialize encryption and decryption."
@@ -224,6 +233,7 @@ where
                         }
                     }
                 } else {
+                    log::trace!("Unexpected key packet!");
                     write
                         .write_packet(&LoginDisconnect {
                             reason: "Unexpected key packet.".into(),
@@ -233,6 +243,7 @@ where
                 }
             }
             ServerBoundLoginRegsitry::CustomQuery { .. } => {
+                log::trace!("C QUERY!");
                 write
                     .write_packet(&LoginDisconnect {
                         reason: "Custom queries are not supported.".into(),
