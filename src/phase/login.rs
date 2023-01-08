@@ -191,13 +191,15 @@ where
 
                     match (encryption, decryption) {
                         (Ok(encryption), Ok(decryption)) => {
-                            return Ok(MCClient::new(
+                            let client = MCClient::new(
                                 DecryptRead::new(read, decryption),
                                 EncryptedWriter::new(write, encryption),
                                 connection_info,
                                 name,
                                 profile,
-                            ));
+                            );
+
+                            return Ok(client);
                         }
                         (Err(err), Ok(_)) | (Ok(_), Err(err)) => {
                             write

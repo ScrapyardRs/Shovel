@@ -18,10 +18,11 @@ pub struct ConnectionInformation {
     pub address: SocketAddr,
     pub virtual_host: String,
     pub virtual_port: u16,
+    pub compression_threshold: Option<i32>,
 }
 
 pub async fn process_handshake<F: StatusBuilder, R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
-    status_builder: &mut F,
+    status_builder: Arc<F>,
     key: Arc<MCPrivateKey>,
     mut read: R,
     write: W,
@@ -38,15 +39,18 @@ pub async fn process_handshake<F: StatusBuilder, R: AsyncRead + Unpin, W: AsyncW
         ConnectionProtocol::Play => {
             throw_explain!("Client attempted to reach play phase via handshake.")
         }
-        ConnectionProtocol::Status => status::accept_status_client::<F, R, W>(status_builder, read, write)
-            .await
-            .map(|_| None),
+        ConnectionProtocol::Status => {
+            status::accept_status_client::<F, R, W>(status_builder, read, write)
+                .await
+                .map(|_| None)
+        }
         ConnectionProtocol::Login => {
             let connection_info = ConnectionInformation {
                 protocol_version,
                 address: client_addr,
                 virtual_host: host_name,
                 virtual_port: port,
+                compression_threshold: Some(32767),
             };
             login::login_client(key, read, write, connection_info)
                 .await
