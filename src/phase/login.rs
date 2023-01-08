@@ -24,8 +24,6 @@ async fn call_mojang_auth(
     route: String,
     params: String,
 ) -> drax::prelude::Result<GameProfile> {
-    log::trace!("Opening connector...");
-
     let https = HttpsConnectorBuilder::new()
         .with_native_roots()
         .https_only()
@@ -34,27 +32,19 @@ async fn call_mojang_auth(
 
     let client = Client::builder().build::<_, Body>(https);
 
-    log::trace!("Connector opened.");
-
     let url = format!("{server}{route}{params}");
     let mut url = url
         .parse::<hyper::Uri>()
         .map_err(|err| err_explain!(format!("Error parsing hyper URI: {}", err)))?;
 
     loop {
-        log::trace!("Sub Called: {url}");
         let res = client
             .get(url)
             .await
             .map_err(|err| err_explain!(format!("Error sending request: {}", err)))?;
 
-        log::trace!("Response status: {}", res.status());
-
-        log::trace!("Url call processed!");
-
         match res.status().as_u16() {
             301 | 307 | 308 => {
-                log::trace!("Redirect to: {:?}", res.headers().get("Location"));
                 if let Some(redirect) = res.headers().get("Location") {
                     let redirect = redirect.to_str().map_err(|err| {
                         err_explain!(format!("Error converting redirect to string: {}", err))
@@ -69,21 +59,16 @@ async fn call_mojang_auth(
                 }
             }
             x if x != 200 => {
-                log::trace!("Bad status code: {}", res.status().as_u16());
                 throw_explain!(format!("Mojang failed to auth, {}", res.status()))
             }
             200 => {}
             _ => {}
         }
         if res.status().as_u16() == 204 {
-            log::trace!("State 204!");
             throw_explain!("Mojang failed to auth; No profile found")
         } else if res.status().as_u16() != 200 {
-            log::trace!("Bad status code: {}", res.status().as_u16());
             throw_explain!(format!("Mojang failed to auth, {}", res.status()))
         }
-
-        log::trace!("Deciphering json");
 
         let body = to_bytes(res.into_body()).await.map_err(|err| {
             err_explain!(format!("Failed to process bytes from response, {}", err))
@@ -155,9 +140,6 @@ where
     loop {
         match read.read_packet::<ServerBoundLoginRegsitry>().await? {
             ServerBoundLoginRegsitry::Hello { name, profile_id } => {
-                log::trace!("HELLO!");
-                log::trace!("\tName: {}", name);
-                log::trace!("\tProfile ID: {:?}", profile_id);
                 if let LoginState::ExpectingHello = state {
                     let key_der = private_key_to_der(&key);
                     let mut verify_token = [0, 0, 0, 0];
@@ -189,20 +171,16 @@ where
                 key_bytes,
                 encrypted_challenge,
             } => {
-                log::trace!("KEY!");
                 if let LoginState::ExpectingKeyResponse {
                     challenge,
                     name,
                     profile_id,
                 } = state
                 {
-                    log::trace!("State challenge! {name}, {profile_id:?}");
-                    log::trace!("Packet info {key_bytes:?}, {encrypted_challenge:?}");
                     let decrypted_challenge = key
                         .decrypt(PaddingScheme::PKCS1v15Encrypt, &encrypted_challenge)
                         .map_err(|_| err_explain!("Failed to decrypt returned challenge."))?;
                     if decrypted_challenge.ne(&challenge) {
-                        log::trace!("Bad exchange :(");
                         write
                             .write_packet(&LoginDisconnect {
                                 reason: "Invalid challenge response.".into(),
@@ -211,7 +189,6 @@ where
                         throw_explain!("Invalid challenge response.")
                     }
 
-                    log::trace!("Decrypting secret!");
                     let shared_secret = key
                         .decrypt(PaddingScheme::PKCS1v15Encrypt, &key_bytes)
                         .map_err(|_| err_explain!("Failed to decrypt shared secret."))?;
@@ -228,7 +205,6 @@ where
                     .await?;
 
                     if matches!(&profile_id, Some(id) if id.ne(&profile.id)) {
-                        log::trace!("Invalid profile ID");
                         write
                             .write_packet(&LoginDisconnect {
                                 reason: "Invalid profile id".into(),
@@ -237,15 +213,11 @@ where
                         throw_explain!("Invalid profile id")
                     }
 
-                    log::trace!("Building encryption");
-
                     let encryption = Encryption::new_from_slices(&shared_secret, &shared_secret);
                     let decryption = Decryption::new_from_slices(&shared_secret, &shared_secret);
 
                     match (encryption, decryption) {
                         (Ok(encryption), Ok(decryption)) => {
-                            log::trace!("Creating mcclient");
-
                             let client = MCClient::new(
                                 DecryptRead::new(read, decryption),
                                 EncryptedWriter::new(write, encryption),
@@ -257,7 +229,6 @@ where
                             return Ok(client);
                         }
                         (Err(err), Ok(_)) | (Ok(_), Err(err)) => {
-                            log::trace!("(err, ok) | (ok, err)");
                             write
                                 .write_packet(&LoginDisconnect {
                                     reason: "Failed to initialize encryption or decryption.".into(),
@@ -268,7 +239,6 @@ where
                             ))
                         }
                         (Err(enc_err), Err(dec_err)) => {
-                            log::trace!("(err, err)");
                             write
                                 .write_packet(&LoginDisconnect {
                                     reason: "Failed to initialize encryption and decryption."
@@ -281,7 +251,6 @@ where
                         }
                     }
                 } else {
-                    log::trace!("Unexpected key packet!");
                     write
                         .write_packet(&LoginDisconnect {
                             reason: "Unexpected key packet.".into(),
@@ -291,7 +260,6 @@ where
                 }
             }
             ServerBoundLoginRegsitry::CustomQuery { .. } => {
-                log::trace!("C QUERY!");
                 write
                     .write_packet(&LoginDisconnect {
                         reason: "Custom queries are not supported.".into(),
