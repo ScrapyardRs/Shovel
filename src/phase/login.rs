@@ -109,10 +109,12 @@ where
                     profile_id,
                 } = state
                 {
+                    log::trace!("State challenge!");
                     let decrypted_challenge = key
                         .decrypt(PaddingScheme::PKCS1v15Encrypt, &encrypted_challenge)
                         .map_err(|_| err_explain!("Failed to decrypt returned challenge."))?;
                     if decrypted_challenge.ne(&challenge) {
+                        log::trace!("Bad exchange :(");
                         write
                             .write_packet(&LoginDisconnect {
                                 reason: "Invalid challenge response.".into(),
@@ -121,6 +123,7 @@ where
                         throw_explain!("Invalid challenge response.")
                     }
 
+                    log::trace!("Decrypting secret!");
                     let shared_secret = key
                         .decrypt(PaddingScheme::PKCS1v15Encrypt, &key_bytes)
                         .map_err(|_| err_explain!("Failed to decrypt shared secret."))?;
@@ -132,9 +135,13 @@ where
                         hash_server_id("", &shared_secret, &private_key_to_der(&key))
                     );
 
+                    log::trace!("Calling URL!");
+
                     let response = match reqwest::get(url).await {
                         Ok(response) => response,
                         Err(err) => {
+                            log::trace!("Oh no!");
+                            log::trace!("Reqwest error {}!", err);
                             write
                                 .write_packet(&LoginDisconnect {
                                     reason: "Failed to authenticate with mojang.".into(),
@@ -144,18 +151,16 @@ where
                         }
                     };
 
-                    if response.status() == StatusCode::from_u16(204).expect("204 is a valid code")
-                    {
+                    if response.status().as_u16() == 204 {
+                        log::trace!("State 204!");
                         write
                             .write_packet(&LoginDisconnect {
                                 reason: "Failed to authenticate with mojang.".into(),
                             })
                             .await?;
                         throw_explain!("Mojang failed to auth; No profile found")
-                    } else if response.status()
-                        != StatusCode::from_u16(200).expect("200 is a valid code")
-                    {
-                        log::trace!("Bad status code: {}", response.status());
+                    } else if response.status().as_u16() != 200 {
+                        log::trace!("Bad status code: {}", response.status().as_u16());
                         write
                             .write_packet(&LoginDisconnect {
                                 reason: format!(
@@ -190,6 +195,8 @@ where
                             .await?;
                         throw_explain!("Invalid profile id")
                     }
+
+                    log::trace!("Building encryption");
 
                     let encryption = Encryption::new_from_slices(&shared_secret, &shared_secret);
                     let decryption = Decryption::new_from_slices(&shared_secret, &shared_secret);
