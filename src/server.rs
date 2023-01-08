@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use drax::{PinnedLivelyResult, PinnedResult};
+use drax::prelude::ErrorType;
 use mcprotocol::clientbound::status::StatusResponse;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
@@ -141,7 +142,9 @@ where
                         }
                         Ok(None) => {}
                         Err(e) => {
-                            log::error!("Error processing client: {}", e);
+                            if !matches!(e.error_type, ErrorType::EOF) {
+                                log::error!("Error processing client: {}", e);
+                            }
                         }
                     }
                 });
