@@ -4,10 +4,8 @@ use drax::prelude::Uuid;
 use drax::transport::encryption::{DecryptRead, Decryption, EncryptedWriter, Encryption};
 use drax::{err_explain, throw_explain};
 use hyper::body::to_bytes;
-use hyper::client::HttpConnector;
 use hyper::{Body, Client};
-use hyper_tls::native_tls::TlsConnector;
-use hyper_tls::HttpsConnector;
+use hyper_rustls::HttpsConnectorBuilder;
 use mcprotocol::clientbound::login::ClientboundLoginRegistry::LoginDisconnect;
 use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::login::ServerBoundLoginRegsitry;
@@ -28,19 +26,12 @@ async fn call_mojang_auth(
 ) -> drax::prelude::Result<GameProfile> {
     log::trace!("Opening connector...");
 
-    let tls = match TlsConnector::builder().build() {
-        Ok(tls) => tls,
-        Err(err) => {
-            log::error!("Failed to build TLS connector: {}", err);
-            throw_explain!(format!("Failed to build TLS connector: {}", err))
-        }
-    };
+    let https = HttpsConnectorBuilder::new()
+        .with_native_roots()
+        .https_only()
+        .enable_http1()
+        .build();
 
-    log::trace!("Tls connector built and opened");
-
-    let mut http = HttpConnector::new();
-    http.enforce_http(false);
-    let https = HttpsConnector::from((http, tls.into()));
     let client = Client::builder().build::<_, Body>(https);
 
     log::trace!("Connector opened.");

@@ -10,7 +10,6 @@ async-compression = { version = "0.3.15", features = ["tokio", "zlib"] }
 drax = { git = "https://github.com/ScrapyardRs/Drax", branch = "develop", features = ["nbt"] }
 flume = "0.10.14"
 mcprotocol = { git = "https://github.com/ScrapyardRs/MCProtocol.rs", branch = "develop" }
-openssl = "0.10.45"
 rand = "0.8.5"
 rsa = "0.7.2"
 rsa-der = "0.3.0"
@@ -24,6 +23,5 @@ serde_derive = "1.0.152"
 serde_json = "1.0.91"
 log = "0.4.17"
 hyper = { version = "0.14.23", features = ["nightly", "client", "http1"] }
-hyper-tls = "0.5.0"
-tokio-native-tls = "0.3.0"
+hyper-rustls = "0.23.2"
 
