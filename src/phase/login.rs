@@ -154,6 +154,8 @@ where
                         }
                     };
 
+                    log::trace!("Url call processed!");
+
                     if response.status().as_u16() == 204 {
                         log::trace!("State 204!");
                         write
@@ -175,6 +177,8 @@ where
                             .await?;
                         throw_explain!(format!("Mojang failed to auth, {}", response.status()))
                     }
+
+                    log::trace!("Deciphering json");
 
                     let profile = match response.json::<GameProfile>().await {
                         Ok(profile) => profile,
