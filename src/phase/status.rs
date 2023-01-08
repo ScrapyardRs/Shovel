@@ -1,16 +1,20 @@
 use drax::throw_explain;
 use mcprotocol::clientbound::status::{ClientboundStatusRegistry, StatusResponse};
 use mcprotocol::serverbound::status::ServerboundStatusRegistry;
+use std::future::Future;
+use std::pin::Pin;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::client::{McPacketReader, McPacketWriter};
 
 pub trait StatusBuilder {
-    fn build(&mut self) -> StatusResponse;
+    fn build<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = drax::prelude::Result<StatusResponse>> + 'a>>;
 }
 
 pub async fn accept_status_client<F: StatusBuilder, R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
-    status_builder: &mut F,
+    status_builder: &F,
     mut read: R,
     mut write: W,
 ) -> drax::prelude::Result<()> {
@@ -18,7 +22,7 @@ pub async fn accept_status_client<F: StatusBuilder, R: AsyncRead + Unpin, W: Asy
         ServerboundStatusRegistry::Request => {
             write
                 .write_packet(&ClientboundStatusRegistry::Response {
-                    response: F::build(status_builder),
+                    response: F::build(status_builder).await?,
                 })
                 .await?;
         }

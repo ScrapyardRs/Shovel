@@ -5,7 +5,9 @@ use shovel::client::McPacketWriter;
 use shovel::crypto::MCPrivateKey;
 use shovel::phase::process_handshake;
 use shovel::phase::status::StatusBuilder;
+use std::future::Future;
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
@@ -13,24 +15,28 @@ use tokio::net::TcpListener;
 pub struct BasicStatusResponse;
 
 impl StatusBuilder for BasicStatusResponse {
-    fn build(&mut self) -> StatusResponse {
-        let mut description = Chat::text("Sample Motd");
-        description.modify_style(|style| style.color("green"));
+    fn build<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = drax::prelude::Result<StatusResponse>> + 'a>> {
+        Box::pin(async move {
+            let mut description = Chat::text("Sample Motd");
+            description.modify_style(|style| style.color("green"));
 
-        StatusResponse {
-            description,
-            players: StatusPlayers {
-                max: 200,
-                online: -200,
-                sample: vec![],
-            },
-            version: StatusVersion {
-                name: shovel::version_constants::CURRENT_PROTOCOL_VERSION_STRING.to_string(),
-                protocol: shovel::version_constants::CURRENT_PROTOCOL_VERSION,
-            },
-            favicon: None,
-            enforces_secure_chat: false,
-        }
+            Ok(StatusResponse {
+                description,
+                players: StatusPlayers {
+                    max: 200,
+                    online: -200,
+                    sample: vec![],
+                },
+                version: StatusVersion {
+                    name: shovel::version_constants::CURRENT_PROTOCOL_VERSION_STRING.to_string(),
+                    protocol: shovel::version_constants::CURRENT_PROTOCOL_VERSION,
+                },
+                favicon: None,
+                enforces_secure_chat: false,
+            })
+        })
     }
 }
 
