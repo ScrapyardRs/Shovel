@@ -9,6 +9,8 @@ use drax::{throw_explain, PinnedLivelyResult};
 use mcprotocol::clientbound::login::ClientboundLoginRegistry::{
     LoginCompression, LoginGameProfile,
 };
+use mcprotocol::clientbound::play::ClientboundPlayRegistry::Disconnect;
+use mcprotocol::common::chat::Chat;
 use mcprotocol::common::GameProfile;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::RwLock;
@@ -123,10 +125,8 @@ pub trait McPacketWriter {
         Box::pin(async move {
             let (packet_size, compressed) = prepare_compressed_packet(threshold, packet).await?;
             if let Some(compressed) = compressed {
-                self.write_var_int(
-                    compressed.len() as i32 + size_var_int(packet_size as i32) as i32,
-                )
-                .await?;
+                self.write_var_int(compressed.len() as i32 + size_var_int(packet_size) as i32)
+                    .await?;
                 self.write_var_int(packet_size).await?;
                 self.write_all(&compressed).await?;
             } else {
@@ -312,6 +312,15 @@ where
     }
 
     outsource_write_packet!();
+
+    // Packet Helper Methods
+
+    pub async fn disconnect<I: Into<Chat>>(&self, reason: I) -> drax::prelude::Result<()> {
+        self.write_packet(&Disconnect {
+            reason: reason.into(),
+        })
+        .await
+    }
 }
 
 pub struct StructuredWriterClone<W> {

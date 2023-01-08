@@ -55,9 +55,9 @@ impl From<rsa::signature::Error> for CapturedRsaError {
 
 pub fn key_from_der(der: &[u8]) -> Result<MCPublicKey, CapturedRsaError> {
     let (n, e) =
-        rsa_der::public_key_from_der(der).map_err(|err| CapturedRsaError::RsaDerError(err))?;
+        rsa_der::public_key_from_der(der).map_err(CapturedRsaError::RsaDerError)?;
     RsaPublicKey::new(BigUint::from_bytes_be(&n), BigUint::from_bytes_be(&e))
-        .map_err(|err| CapturedRsaError::RsaError(err))
+        .map_err(CapturedRsaError::RsaError)
 }
 
 pub fn private_key_to_der(key: &MCPrivateKey) -> Vec<u8> {

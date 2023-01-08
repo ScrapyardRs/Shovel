@@ -144,12 +144,17 @@ where
                             log::error!("Error processing client: {}", e);
                         }
                     }
-                    ();
                 });
 
                 rt.block_on(local);
             });
         }
+    }
+}
+
+impl Default for MinecraftServer<()> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -177,12 +182,12 @@ macro_rules! status_builder {
     ) => {
         mcprotocol::clientbound::status::StatusResponse {
             description: $description,
-            players: StatusPlayers {
+            players: mcprotocol::clientbound::status::StatusPlayers {
                 max: $max_players,
                 online: $online_players,
                 sample: $crate::__internal_status_flip!(vec![]$(, $player_sample)?),
             },
-            version: StatusVersion {
+            version: mcprotocol::clientbound::status::StatusVersion {
                 name: $crate::version_constants::CURRENT_PROTOCOL_VERSION_STRING.to_string(),
                 protocol: $crate::version_constants::CURRENT_PROTOCOL_VERSION,
             },
@@ -204,7 +209,7 @@ macro_rules! spawn_server {
             $(.bind($bind.to_string()))?
             $(.build_status($status_builder))?
             $(.build_mc_status($mc_status_builder))?
-            .spawn(|$client_ident| {
+            .spawn(|mut $client_ident| {
                 Box::pin(async move {
                     $($client_acceptor_tokens)*
                 })

@@ -24,7 +24,7 @@ fn hash_server_id(server_id: &str, shared_secret: &[u8], public_key: &[u8]) -> S
     hasher.update(public_key);
     let bytes = hasher.finalize();
     let bigint = BigInt::from_signed_bytes_be(bytes.as_slice());
-    format!("{:x}", bigint)
+    format!("{bigint:x}")
 }
 
 #[inline]
@@ -138,7 +138,7 @@ where
                                     reason: "Failed to authenticate with mojang.".into(),
                                 })
                                 .await?;
-                            throw_explain!(format!("Mojang failed to auth {}", err))
+                            throw_explain!(format!("Mojang failed to auth {err}"))
                         }
                     };
 
@@ -173,7 +173,7 @@ where
                                     reason: "Failed to parse profile".into(),
                                 })
                                 .await?;
-                            throw_explain!(format!("{}", err))
+                            throw_explain!(format!("{err}"))
                         }
                     };
 
@@ -208,8 +208,7 @@ where
                                 })
                                 .await?;
                             throw_explain!(format!(
-                                "Failed to initialize encryption or decryption: {}",
-                                err
+                                "Failed to initialize encryption or decryption: {err}"
                             ))
                         }
                         (Err(enc_err), Err(dec_err)) => {
@@ -220,8 +219,7 @@ where
                                 })
                                 .await?;
                             throw_explain!(format!(
-                                "Failed to initialize encryption and decryption: {} + {}",
-                                enc_err, dec_err
+                                "Failed to initialize encryption and decryption: {enc_err} + {dec_err}"
                             ))
                         }
                     }

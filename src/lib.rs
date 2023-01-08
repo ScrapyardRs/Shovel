@@ -10,5 +10,5 @@ pub mod crypto;
 
 pub mod version_constants {
     pub const CURRENT_PROTOCOL_VERSION: i32 = 761;
-    pub const CURRENT_PROTOCOL_VERSION_STRING: &'static str = "1.19.3";
+    pub const CURRENT_PROTOCOL_VERSION_STRING: &str = "1.19.3";
 }
