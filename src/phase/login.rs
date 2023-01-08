@@ -71,6 +71,8 @@ where
         match read.read_packet::<ServerBoundLoginRegsitry>().await? {
             ServerBoundLoginRegsitry::Hello { name, profile_id } => {
                 log::trace!("HELLO!");
+                log::trace!("\tName: {}", name);
+                log::trace!("\tProfile ID: {:?}", profile_id);
                 if let LoginState::ExpectingHello = state {
                     let key_der = private_key_to_der(&key);
                     let mut verify_token = [0, 0, 0, 0];
@@ -109,7 +111,8 @@ where
                     profile_id,
                 } = state
                 {
-                    log::trace!("State challenge!");
+                    log::trace!("State challenge! {name}, {profile_id:?}");
+                    log::trace!("Packet info {key_bytes:?}, {encrypted_challenge:?}");
                     let decrypted_challenge = key
                         .decrypt(PaddingScheme::PKCS1v15Encrypt, &encrypted_challenge)
                         .map_err(|_| err_explain!("Failed to decrypt returned challenge."))?;
