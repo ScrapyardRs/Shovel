@@ -17,6 +17,118 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 
+async fn call_mojang_auth(
+    server: String,
+    route: String,
+    params: String,
+    name: String,
+    shared_secret: &[u8],
+) -> drax::prelude::Result<GameProfile> {
+    let url = format!("{}/{route}{params}", def_auth_server());
+
+    log::trace!("Called: {url}");
+
+    log::trace!("Calling URL!");
+
+    let url = url
+        .parse::<hyper::Uri>()
+        .map_err(|err| err_explain!(format!("Error parsing hyper URI: {}", err)))?;
+
+    let host = url
+        .host()
+        .map(Ok)
+        .unwrap_or_else(|| throw_explain!("Failed to resolve host for URI"))?;
+    let port = url.port_u16().unwrap_or(80);
+
+    log::trace!("Host: {}:{}", host, port);
+    let address = format!("{}:{}", host, port);
+
+    let stream = TcpStream::connect(address).await?;
+
+    let (mut sender, conn) = hyper::client::conn::handshake(stream)
+        .await
+        .map_err(|err| err_explain!(format!("Failed to initiate handshake for hyper: {}", err)))?;
+
+    let conn_handle = tokio::task::spawn(async move {
+        if let Err(err) = conn.await {
+            log::error!("Hyper connection failed: {:?}", err);
+        }
+    });
+
+    let mut route = route.clone();
+    loop {
+        let url = format!("{}/{route}{params}", def_auth_server());
+        let url = url
+            .parse::<hyper::Uri>()
+            .map_err(|err| err_explain!(format!("Error parsing hyper URI: {}", err)))?;
+
+        let authority = url
+            .authority()
+            .map(Ok)
+            .unwrap_or_else(|| throw_explain!("Error receiving url authority"))?
+            .clone();
+
+        let req = Request::builder()
+            .uri(url)
+            .header(hyper::header::HOST, authority.as_str())
+            .body(Body::empty())
+            .map_err(|err| err_explain!(format!("Error setting up hyper request: {}", err)))?;
+
+        let res = sender
+            .send_request(req)
+            .await
+            .map_err(|err| err_explain!(format!("Error sending request: {}", err)))?;
+
+        log::trace!("Response status: {}", res.status());
+
+        log::trace!("Url call processed!");
+
+        match res.status().as_u16() {
+            301 | 307 | 308 => {
+                log::trace!("Redirect to: {:?}", res.headers().get("Location"));
+                if let Some(redirect) = res.headers().get("Location") {
+                    let redirect = redirect.to_str().map_err(|err| {
+                        err_explain!(format!("Error converting redirect to string: {}", err))
+                    })?;
+                    route = redirect.to_string();
+                    continue;
+                } else {
+                    throw_explain!("No redirect location found!");
+                }
+            }
+            x if x != 200 => {
+                log::trace!("Bad status code: {}", res.status().as_u16());
+                throw_explain!(format!("Mojang failed to auth, {}", res.status()))
+            }
+            200 => {}
+            _ => {}
+        }
+        if res.status().as_u16() == 204 {
+            log::trace!("State 204!");
+            throw_explain!("Mojang failed to auth; No profile found")
+        } else if res.status().as_u16() != 200 {
+            log::trace!("Bad status code: {}", res.status().as_u16());
+            throw_explain!(format!("Mojang failed to auth, {}", res.status()))
+        }
+
+        log::trace!("Deciphering json");
+
+        let body = to_bytes(res.into_body()).await.map_err(|err| {
+            err_explain!(format!("Failed to process bytes from response, {}", err))
+        })?;
+        conn_handle.abort(); // clean up client
+
+        let profile: GameProfile = match serde_json::from_slice(&body) {
+            Ok(profile) => profile,
+            Err(err) => {
+                throw_explain!(format!("Error retrieving profile: {}", err))
+            }
+        };
+
+        return Ok(profile);
+    }
+}
+
 #[inline]
 fn hash_server_id(server_id: &str, shared_secret: &[u8], public_key: &[u8]) -> String {
     use md5::Digest;
