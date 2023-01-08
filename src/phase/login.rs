@@ -1,11 +1,11 @@
-use crate::client::{MCClient, McPacketReader, McPacketWriter};
-use crate::crypto::{private_key_to_der, MCPrivateKey};
-use crate::phase::ConnectionInformation;
+use std::sync::Arc;
+
 use drax::prelude::Uuid;
 use drax::transport::encryption::{DecryptRead, Decryption, EncryptedWriter, Encryption};
 use drax::{err_explain, throw_explain};
 use hyper::body::to_bytes;
-use hyper::{Body, Request};
+use hyper::{Body, Client};
+use hyper_tls::HttpsConnector;
 use mcprotocol::clientbound::login::ClientboundLoginRegistry::LoginDisconnect;
 use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::login::ServerBoundLoginRegsitry;
@@ -13,63 +13,33 @@ use num_bigint::BigInt;
 use rand::RngCore;
 use rsa::signature::digest::crypto_common::KeyIvInit;
 use rsa::PaddingScheme;
-use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
-use tokio::net::TcpStream;
+
+use crate::client::{MCClient, McPacketReader, McPacketWriter};
+use crate::crypto::{private_key_to_der, MCPrivateKey};
+use crate::phase::ConnectionInformation;
 
 async fn call_mojang_auth(
     server: String,
     route: String,
     params: String,
 ) -> drax::prelude::Result<GameProfile> {
+    log::trace!("Opening connector...");
+
+    let https = HttpsConnector::new();
+    let client = Client::builder().build::<_, Body>(https);
+
+    log::trace!("Connector opened.");
+
     let url = format!("{server}{route}{params}");
-
-    log::trace!("Called: {url}");
-
-    log::trace!("Calling URL!");
-
     let mut url = url
         .parse::<hyper::Uri>()
         .map_err(|err| err_explain!(format!("Error parsing hyper URI: {}", err)))?;
 
-    let host = url
-        .host()
-        .map(Ok)
-        .unwrap_or_else(|| throw_explain!("Failed to resolve host for URI"))?;
-    let port = url.port_u16().unwrap_or(80);
-
-    log::trace!("Host: {}:{}", host, port);
-    let address = format!("{}:{}", host, port);
-
-    let stream = TcpStream::connect(address).await?;
-
-    let (mut sender, conn) = hyper::client::conn::handshake(stream)
-        .await
-        .map_err(|err| err_explain!(format!("Failed to initiate handshake for hyper: {}", err)))?;
-
-    let conn_handle = tokio::task::spawn(async move {
-        if let Err(err) = conn.await {
-            log::error!("Hyper connection failed: {:?}", err);
-        }
-    });
-
-    let mut route = route.clone();
     loop {
         log::trace!("Sub Called: {url}");
-        let authority = url
-            .authority()
-            .map(Ok)
-            .unwrap_or_else(|| throw_explain!("Error receiving url authority"))?
-            .clone();
-
-        let req = Request::builder()
-            .uri(url)
-            .header(hyper::header::HOST, authority.as_str())
-            .body(Body::empty())
-            .map_err(|err| err_explain!(format!("Error setting up hyper request: {}", err)))?;
-
-        let res = sender
-            .send_request(req)
+        let res = client
+            .get(url)
             .await
             .map_err(|err| err_explain!(format!("Error sending request: {}", err)))?;
 
@@ -113,7 +83,6 @@ async fn call_mojang_auth(
         let body = to_bytes(res.into_body()).await.map_err(|err| {
             err_explain!(format!("Failed to process bytes from response, {}", err))
         })?;
-        conn_handle.abort(); // clean up client
 
         let profile: GameProfile = match serde_json::from_slice(&body) {
             Ok(profile) => profile,
