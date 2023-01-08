@@ -140,7 +140,7 @@ where
                             client_count.fetch_add(1, Ordering::SeqCst);
                             match tokio::task::spawn_local((client_acceptor)(client)).await {
                                 Ok(Ok(_)) => {
-                                    println!("Client {} disconnected naturally.", client_name);
+                                    log::info!("Client {} disconnected naturally.", client_name);
                                 }
                                 Ok(Err(err)) if matches!(err.error_type, ErrorType::EOF) => {
                                     log::info!("Client {} disconnected with EOF.", client_name);
