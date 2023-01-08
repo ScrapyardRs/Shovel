@@ -154,6 +154,7 @@ where
                         .unwrap_or_else(|| throw_explain!("Failed to resolve host for URI"))?;
                     let port = url.port_u16().unwrap_or(80);
 
+                    log::trace!("Host: {}:{}", host, port);
                     let address = format!("{}:{}", host, port);
 
                     let stream = TcpStream::connect(address).await?;
