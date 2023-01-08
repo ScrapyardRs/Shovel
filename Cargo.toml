@@ -1,0 +1,26 @@
+[package]
+name = "shovel"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-compression = { version = "0.3.15", features = ["tokio", "zlib"] }
+drax = { git = "https://github.com/ScrapyardRs/Drax", branch = "develop", features = ["nbt"] }
+flume = "0.10.14"
+mcprotocol = { git = "https://github.com/ScrapyardRs/MCProtocol.rs", branch = "develop" }
+openssl = "0.10.45"
+rand = "0.8.5"
+rsa = "0.7.2"
+rsa-der = "0.3.0"
+sha2 = "0.10.6"
+tokio = { version = "1.24.1", features = ["full"] }
+num-bigint = "0.4.3"
+sha-1 = "0.9"
+md-5 = "0.9"
+reqwest = { version = "0.11.13", features = ["json"] }
+serde = { version = "1.0.152", features = ["derive"] }
+serde_derive = "1.0.152"
+serde_json = "1.0.91"
+
