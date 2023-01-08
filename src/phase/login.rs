@@ -21,10 +21,8 @@ async fn call_mojang_auth(
     server: String,
     route: String,
     params: String,
-    name: String,
-    shared_secret: &[u8],
 ) -> drax::prelude::Result<GameProfile> {
-    let url = format!("{}/{route}{params}", def_auth_server());
+    let url = format!("{server}/{route}{params}");
 
     log::trace!("Called: {url}");
 
@@ -57,7 +55,8 @@ async fn call_mojang_auth(
 
     let mut route = route.clone();
     loop {
-        let url = format!("{}/{route}{params}", def_auth_server());
+        let url = format!("{server}/{route}{params}");
+        log::trace!("Sub Called: {url}");
         let url = url
             .parse::<hyper::Uri>()
             .map_err(|err| err_explain!(format!("Error parsing hyper URI: {}", err)))?;
@@ -245,112 +244,16 @@ where
                         .decrypt(PaddingScheme::PKCS1v15Encrypt, &key_bytes)
                         .map_err(|_| err_explain!("Failed to decrypt shared secret."))?;
 
-                    let url = format!(
-                        "{}/session/minecraft/hasJoined?username={}&serverId={}",
+                    let profile = call_mojang_auth(
                         def_auth_server(),
-                        name,
-                        hash_server_id("", &shared_secret, &private_key_to_der(&key))
-                    );
-
-                    log::trace!("Called: {url}");
-
-                    log::trace!("Calling URL!");
-
-                    let url = url
-                        .parse::<hyper::Uri>()
-                        .map_err(|err| err_explain!(format!("Error parsing hyper URI: {}", err)))?;
-
-                    let host = url
-                        .host()
-                        .map(Ok)
-                        .unwrap_or_else(|| throw_explain!("Failed to resolve host for URI"))?;
-                    let port = url.port_u16().unwrap_or(80);
-
-                    log::trace!("Host: {}:{}", host, port);
-                    let address = format!("{}:{}", host, port);
-
-                    let stream = TcpStream::connect(address).await?;
-
-                    let (mut sender, conn) =
-                        hyper::client::conn::handshake(stream)
-                            .await
-                            .map_err(|err| {
-                                err_explain!(format!(
-                                    "Failed to initiate handshake for hyper: {}",
-                                    err
-                                ))
-                            })?;
-
-                    let conn_handle = tokio::task::spawn(async move {
-                        if let Err(err) = conn.await {
-                            log::error!("Hyper connection failed: {:?}", err);
-                        }
-                    });
-
-                    // The authority of our URL will be the hostname of the httpbin remote
-                    let authority = url
-                        .authority()
-                        .map(Ok)
-                        .unwrap_or_else(|| throw_explain!("Error receiving url authority"))?
-                        .clone();
-
-                    let req = Request::builder()
-                        .uri(url)
-                        .header(hyper::header::HOST, authority.as_str())
-                        .body(Body::empty())
-                        .map_err(|err| {
-                            err_explain!(format!("Error setting up hyper request: {}", err))
-                        })?;
-
-                    let res = sender
-                        .send_request(req)
-                        .await
-                        .map_err(|err| err_explain!(format!("Error sending request: {}", err)))?;
-
-                    log::trace!("Response status: {}", res.status());
-
-                    log::trace!("Url call processed!");
-
-                    if res.status().as_u16() == 204 {
-                        log::trace!("State 204!");
-                        write
-                            .write_packet(&LoginDisconnect {
-                                reason: "Failed to authenticate with mojang.".into(),
-                            })
-                            .await?;
-                        throw_explain!("Mojang failed to auth; No profile found")
-                    } else if res.status().as_u16() != 200 {
-                        log::trace!("Bad status code: {}", res.status().as_u16());
-                        write
-                            .write_packet(&LoginDisconnect {
-                                reason: format!(
-                                    "Failed to authenticate with mojang; ({})",
-                                    res.status()
-                                )
-                                .into(),
-                            })
-                            .await?;
-                        throw_explain!(format!("Mojang failed to auth, {}", res.status()))
-                    }
-
-                    log::trace!("Deciphering json");
-
-                    let body = to_bytes(res.into_body()).await.map_err(|err| {
-                        err_explain!(format!("Failed to process bytes from response, {}", err))
-                    })?;
-                    conn_handle.abort(); // clean up client
-
-                    let profile: GameProfile = match serde_json::from_slice(&body) {
-                        Ok(profile) => profile,
-                        Err(err) => {
-                            write
-                                .write_packet(&LoginDisconnect {
-                                    reason: "Invalid game profile found when parsing".into(),
-                                })
-                                .await?;
-                            throw_explain!(format!("Error retrieving profile: {}", err))
-                        }
-                    };
+                        "/session/minecraft/hasJoined".to_string(),
+                        format!(
+                            "?username={}&serverId={}",
+                            &name,
+                            hash_server_id("", &shared_secret, &private_key_to_der(&key))
+                        ),
+                    )
+                    .await?;
 
                     if matches!(&profile_id, Some(id) if id.ne(&profile.id)) {
                         log::trace!("Invalid profile ID");
