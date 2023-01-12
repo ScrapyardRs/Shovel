@@ -181,7 +181,7 @@ impl<A: AsyncWrite + Unpin> McPacketWriter for A {
             let mut buffer = Cursor::new(buffer);
             P::encode(packet, &mut (), &mut buffer).await?;
             let buffer = buffer.into_inner();
-            assert_eq!(buffer.len() as usize, size);
+            assert_eq!(buffer.len(), size as usize);
             self.write_all(&buffer).await?;
             Ok(())
         })
