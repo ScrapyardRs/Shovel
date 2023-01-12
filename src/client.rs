@@ -173,11 +173,16 @@ impl<A: AsyncWrite + Unpin> McPacketWriter for A {
         packet: &'a P,
     ) -> PinnedLivelyResult<'a, ()> {
         Box::pin(async move {
-            self.write_var_int(match P::size(packet, &mut ())? {
+            let size = match P::size(packet, &mut ())? {
                 Size::Dynamic(x) | Size::Constant(x) => x as i32,
-            })
-            .await?;
-            P::encode(packet, &mut (), self).await?;
+            };
+            self.write_var_int(size).await?;
+            let buffer = Vec::with_capacity(size as usize);
+            let mut buffer = Cursor::new(buffer);
+            P::encode(packet, &mut (), &mut buffer).await?;
+            let buffer = buffer.into_inner();
+            assert_eq!(buffer.len(), size);
+            self.write_all(&buffer).await?;
             Ok(())
         })
     }
