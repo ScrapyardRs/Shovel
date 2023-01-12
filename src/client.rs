@@ -100,14 +100,22 @@ pub fn prepare_compressed_packet<P: PacketComponent<(), ComponentType = P>>(
             Size::Dynamic(x) | Size::Constant(x) => x as i32,
         };
         if size >= threshold {
+            log::debug!("Preparing compressed packet.. met threshold to compress.");
             let mut zlib_compressor = ZlibEncoder::new(Cursor::new(vec![]));
             zlib_compressor
                 .encode_component::<(), P>(&mut (), packet)
                 .await?;
             zlib_compressor.flush().await?;
             let prepared = zlib_compressor.into_inner().into_inner();
+            log::debug!(
+                "Preparing compressed packet.. met threshold to compress.\n\
+                Success! Compressed packet size: {} -> {}",
+                size,
+                prepared.len()
+            );
             Ok((size, Some(prepared)))
         } else {
+            log::debug!("Not compressing packet of size {}", size);
             Ok((size, None))
         }
     })
