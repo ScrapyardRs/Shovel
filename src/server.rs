@@ -6,7 +6,6 @@ use drax::{err_explain, throw_explain, PinnedLivelyResult, PinnedResult};
 use mcprotocol::clientbound::status::StatusResponse;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
-use tokio::runtime::Builder;
 
 use crate::client::MCClient;
 use crate::crypto::MCPrivateKey;

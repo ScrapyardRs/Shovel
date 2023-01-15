@@ -11,7 +11,7 @@ pub mod server;
 #[macro_export]
 macro_rules! spawn_local {
     ($(@pre { $pre_tt:tt* })?$($tt:tt)*) => {
-        let rt = Builder::new_current_thread()
+        let rt = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .map_err(|err| {
