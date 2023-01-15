@@ -133,14 +133,26 @@ pub trait McPacketWriter {
         Box::pin(async move {
             let (packet_size, compressed) = prepare_compressed_packet(threshold, packet).await?;
             if let Some(compressed) = compressed {
-                self.write_var_int(compressed.len() as i32 + size_var_int(packet_size) as i32)
+                let size_v_int_size = size_var_int(packet_size as i32);
+                let len = compressed.len()
+                    + size_var_int(packet_size as i32)
+                    + size_var_int((compressed.len() + size_v_int_size) as i32);
+                let mut buffer = Cursor::new(Vec::with_capacity(len));
+                buffer
+                    .write_var_int(compressed.len() as i32 + size_v_int_size as i32)
                     .await?;
-                self.write_var_int(packet_size).await?;
-                self.write_all(&compressed).await?;
+                buffer.write_var_int(packet_size).await?;
+                buffer.write_all(&compressed).await?;
+                let buffer = buffer.into_inner();
+                self.write_all(&buffer).await?;
             } else {
-                self.write_var_int(packet_size + 1).await?;
-                self.write_var_int(0).await?;
-                self.encode_component::<(), P>(&mut (), packet).await?;
+                let len = packet_size as usize + 1 + size_var_int(packet_size + 1);
+                let mut buffer = Cursor::new(Vec::with_capacity(len));
+                buffer.write_var_int(packet_size + 1).await?;
+                buffer.write_var_int(0).await?;
+                buffer.encode_component::<(), P>(&mut (), packet).await?;
+                let buffer = buffer.into_inner();
+                self.write_all(&buffer).await?;
             }
             Ok(())
         })
@@ -176,12 +188,11 @@ impl<A: AsyncWrite + Unpin> McPacketWriter for A {
             let size = match P::size(packet, &mut ())? {
                 Size::Dynamic(x) | Size::Constant(x) => x as i32,
             };
-            self.write_var_int(size).await?;
-            let buffer = Vec::with_capacity(size as usize);
-            let mut buffer = Cursor::new(buffer);
+            let len = size_var_int(size) + size as usize;
+            let mut buffer = Cursor::new(Vec::with_capacity(len));
+            buffer.write_var_int(size).await?;
             P::encode(packet, &mut (), &mut buffer).await?;
             let buffer = buffer.into_inner();
-            assert_eq!(buffer.len(), size as usize);
             self.write_all(&buffer).await?;
             Ok(())
         })
