@@ -195,7 +195,7 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
     ) -> PinnedLivelyResult<'a, ()> {
         Box::pin(async move {
             let id = uuid::Uuid::new_v4();
-            println!("PACKET {id} BEGIN");
+            log::info!("PACKET {id} BEGIN");
             let size = match P::size(packet, &mut ())? {
                 Size::Dynamic(x) | Size::Constant(x) => x as i32,
             };
@@ -206,7 +206,7 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
             let buffer = buffer.into_inner();
             self.write_all(&buffer).await?;
             self.flush().await?;
-            println!("PACKET {id} FLUSHED");
+            log::info!("PACKET {id} FLUSHED");
             Ok(())
         })
     }
@@ -510,7 +510,6 @@ impl ShovelClient {
                 };
                 if let ServerboundPlayRegistry::KeepAlive { keep_alive_id } = &packet {
                     let cloned_writer = cloned_writer.clone();
-                    println!("Received keep alive {keep_alive_id}, {seq}");
                     if *keep_alive_id == seq {
                         seq += 1;
                         tokio::spawn(async move {
