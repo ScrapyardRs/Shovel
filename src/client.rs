@@ -12,7 +12,7 @@ use mcprotocol::clientbound::login::ClientboundLoginRegistry::{
 use mcprotocol::clientbound::play::ClientboundPlayRegistry::{
     ClientLogin, CustomPayload, Disconnect, PlayerPosition, SetDefaultSpawnPosition,
 };
-use mcprotocol::clientbound::play::{ClientboundPlayRegistry, DelegateStr, RelativeArgument};
+use mcprotocol::clientbound::play::{ClientboundPlayRegistry, RelativeArgument};
 use mcprotocol::common::chat::Chat;
 use mcprotocol::common::play::{BlockPos, Location, SimpleLocation};
 use mcprotocol::common::GameProfile;
@@ -518,7 +518,7 @@ impl ShovelClient {
                         continue;
                     }
                 } else {
-                    if let Err(err) = tx.send(packet) {
+                    if let Err(_) = tx.send(packet) {
                         return;
                     };
                 }

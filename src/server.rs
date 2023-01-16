@@ -120,22 +120,19 @@ where
                         let client_name = client.profile.name.clone();
                         // new player added
                         client_count.fetch_add(1, Ordering::SeqCst);
-                        match tokio::task::spawn_local((client_acceptor)(ShovelClient {
+                        match (client_acceptor)(ShovelClient {
                             server_player: client,
-                        }))
+                        })
                         .await
                         {
-                            Ok(Ok(_)) => {
+                            Ok(_) => {
                                 log::info!("Client {} disconnected naturally.", client_name);
                             }
-                            Ok(Err(err)) if matches!(err.error_type, ErrorType::EOF) => {
+                            Err(err) if matches!(err.error_type, ErrorType::EOF) => {
                                 log::info!("Client {} disconnected with EOF.", client_name);
                             }
-                            Ok(Err(err)) => {
-                                log::error!("Transport error in client acceptor: {}", err);
-                            }
                             Err(err) => {
-                                log::error!("Join error in client acceptor: {}", err);
+                                log::error!("Transport error in client acceptor: {}", err);
                             }
                         }
                         // remove new player
