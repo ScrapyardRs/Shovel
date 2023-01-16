@@ -194,6 +194,8 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
         packet: &'a P,
     ) -> PinnedLivelyResult<'a, ()> {
         Box::pin(async move {
+            let id = uuid::Uuid::new_v4();
+            println!("PACKET {id} BEGIN");
             let size = match P::size(packet, &mut ())? {
                 Size::Dynamic(x) | Size::Constant(x) => x as i32,
             };
@@ -203,6 +205,8 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
             P::encode(packet, &mut (), &mut buffer).await?;
             let buffer = buffer.into_inner();
             self.write_all(&buffer).await?;
+            self.flush().await?;
+            println!("PACKET {id} FLUSHED");
             Ok(())
         })
     }
