@@ -202,9 +202,12 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
             let len = size_var_int(size) + size as usize;
             let mut buffer = Cursor::new(Vec::with_capacity(len));
             buffer.write_var_int(size).await?;
+            log::info!("PACKET {id} PRE ENCODE");
             P::encode(packet, &mut (), &mut buffer).await?;
+            log::info!("PACKET {id} ENCODE COMPLETE");
             let buffer = buffer.into_inner();
             self.write_all(&buffer).await?;
+            log::info!("PACKET {id} FLUSH START");
             self.flush().await?;
             log::info!("PACKET {id} FLUSHED");
             Ok(())
