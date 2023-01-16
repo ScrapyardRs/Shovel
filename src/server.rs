@@ -204,6 +204,7 @@ macro_rules! status_builder {
 #[macro_export]
 macro_rules! spawn_server {
     (
+        $ctx:expr,
         $(@bind $bind:expr,)?
         $(@status $status_builder:expr,)?
         $(@mc_status $mc_status_builder:expr,)?
@@ -213,7 +214,7 @@ macro_rules! spawn_server {
             $(.bind($bind.to_string()))?
             $(.build_status($status_builder))?
             $(.build_mc_status($mc_status_builder))?
-            .spawn(|$client_context_ident, mut $client_ident| {
+            .spawn($ctx, |$client_context_ident, mut $client_ident| {
                 Box::pin(async move {
                     $($client_acceptor_tokens)*
                 })
