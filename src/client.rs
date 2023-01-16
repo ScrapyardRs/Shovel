@@ -1,5 +1,6 @@
 use std::io::Cursor;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_compression::tokio::write::{ZlibDecoder, ZlibEncoder};
 use drax::prelude::{DraxReadExt, DraxWriteExt, ErrorType, PacketComponent, Size};
@@ -507,13 +508,18 @@ impl ShovelClient {
                 };
                 if let ServerboundPlayRegistry::KeepAlive { keep_alive_id } = &packet {
                     let cloned_writer = cloned_writer.clone();
+                    log::info!("Received keep alive {keep_alive_id}");
                     if *keep_alive_id == seq {
                         seq += 1;
                         tokio::spawn(async move {
-                            cloned_writer
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+                            log::info!("Sending keep alive {seq}");
+                            if let Err(err) = cloned_writer
                                 .write_packet(&ClientboundPlayRegistry::KeepAlive { id: seq })
                                 .await
-                                .unwrap();
+                            {
+                                log::error!("Error sending keep alive: {}", err);
+                            };
                         });
                         continue;
                     }
