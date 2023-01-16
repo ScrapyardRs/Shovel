@@ -194,22 +194,16 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
         packet: &'a P,
     ) -> PinnedLivelyResult<'a, ()> {
         Box::pin(async move {
-            let id = uuid::Uuid::new_v4();
-            log::info!("PACKET {id} BEGIN");
             let size = match P::size(packet, &mut ())? {
                 Size::Dynamic(x) | Size::Constant(x) => x as i32,
             };
-            log::info!("Size guess: {}", size);
             let len = size_var_int(size) + size as usize;
-            log::info!("Len: {}", len);
             let mut buffer = Cursor::new(Vec::with_capacity(len));
             buffer.write_var_int(size).await?;
             P::encode(packet, &mut (), &mut buffer).await?;
             let buffer = buffer.into_inner();
-            log::info!("Final len: {}", buffer.len());
             self.write_all(&buffer).await?;
             self.flush().await?;
-            log::info!("PACKET {id} FLUSHED");
             Ok(())
         })
     }
@@ -254,16 +248,13 @@ macro_rules! outsource_write_packet {
             match self.compression_threshold {
                 None => {
                     let mut lock = self.writer.write().await;
-                    log::info!("Acquired lock and begun packet writing...");
                     match lock.writer.write_packet(packet).await {
                         Ok(()) => {
-                            log::info!("Packet written");
                             drop(lock);
                             Ok(())
                         }
                         Err(e) => {
                             drop(lock);
-                            log::error!("Error writing packet: {}", e);
                             Err(e)
                         }
                     }?;
@@ -528,12 +519,11 @@ impl ShovelClient {
                         seq += 1;
                         tokio::spawn(async move {
                             tokio::time::sleep(Duration::from_secs(1)).await;
-                            log::info!("Sending fake keep alive: {seq}");
-                            // if let Err(err) =
-                            //     cloned_writer.write_packet(&KeepAlive { id: seq }).await
-                            // {
-                            //     log::error!("Error sending keep alive: {}", err);
-                            // };
+                            if let Err(err) =
+                                cloned_writer.write_packet(&KeepAlive { id: seq }).await
+                            {
+                                log::error!("Error sending keep alive: {}", err);
+                            };
                         });
                         continue;
                     } else {
