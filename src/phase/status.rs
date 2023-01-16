@@ -20,25 +20,28 @@ pub async fn accept_status_client<
     mut read: R,
     mut write: W,
 ) -> drax::prelude::Result<()> {
-    match read.read_packet::<ServerboundStatusRegistry>().await? {
+    match read.read_packet::<ServerboundStatusRegistry>(None).await? {
         ServerboundStatusRegistry::Request => {
             write
-                .write_packet(&ClientboundStatusRegistry::Response {
-                    response: F::build(&status_builder).await?,
-                })
+                .write_packet(
+                    None,
+                    &ClientboundStatusRegistry::Response {
+                        response: F::build(&status_builder).await?,
+                    },
+                )
                 .await?;
         }
         ServerboundStatusRegistry::Ping { .. } => {
             throw_explain!("Received ping before status request")
         }
     }
-    match read.read_packet::<ServerboundStatusRegistry>().await? {
+    match read.read_packet::<ServerboundStatusRegistry>(None).await? {
         ServerboundStatusRegistry::Request => {
             throw_explain!("Received second status request; expected ping")
         }
         ServerboundStatusRegistry::Ping { payload } => {
             write
-                .write_packet(&ClientboundStatusRegistry::Pong { payload })
+                .write_packet(None, &ClientboundStatusRegistry::Pong { payload })
                 .await?;
         }
     }

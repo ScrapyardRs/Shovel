@@ -33,7 +33,7 @@ pub async fn process_handshake<
     write: W,
     client_addr: SocketAddr,
 ) -> drax::prelude::Result<Option<MCClient<R, W>>> {
-    let intention_packet = read.read_packet::<HandshakingRegistry>().await?;
+    let intention_packet = read.read_packet::<HandshakingRegistry>(None).await?;
     let HandshakingRegistry::ClientIntention {
         protocol_version,
         host_name,

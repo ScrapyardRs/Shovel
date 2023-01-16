@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
 use drax::prelude::Uuid;
-use drax::transport::encryption::{DecryptRead, EncryptedWriter};
 use drax::{err_explain, throw_explain};
 use hyper::body::to_bytes;
 use hyper::{Body, Client};
@@ -122,14 +121,17 @@ where
 {
     if connection_info.protocol_version != crate::version_constants::CURRENT_PROTOCOL_VERSION {
         write
-            .write_packet(&LoginDisconnect {
-                reason: format!(
-                    "This server is running a different Minecraft version.\n\
+            .write_packet(
+                None,
+                &LoginDisconnect {
+                    reason: format!(
+                        "This server is running a different Minecraft version.\n\
                 Please use {} to play on this server.",
-                    crate::version_constants::CURRENT_PROTOCOL_VERSION_STRING
-                )
-                .into(),
-            })
+                        crate::version_constants::CURRENT_PROTOCOL_VERSION_STRING
+                    )
+                    .into(),
+                },
+            )
             .await?;
         throw_explain!("Outdated client attempted login.")
     }
@@ -137,7 +139,7 @@ where
     // loop until encryption response
     let mut state = LoginState::ExpectingHello;
     loop {
-        match read.read_packet::<ServerBoundLoginRegsitry>().await? {
+        match read.read_packet::<ServerBoundLoginRegsitry>(None).await? {
             ServerBoundLoginRegsitry::Hello { name, profile_id } => {
                 // let client = MCClient::new(
                 //     DecryptRead::noop(read),
@@ -158,6 +160,7 @@ where
                     rand::thread_rng().fill_bytes(&mut verify_token);
                     write
                         .write_packet(
+                            None,
                             &mcprotocol::clientbound::login::ClientboundLoginRegistry::Hello {
                                 server_id: "".to_string(),
                                 public_key: key_der,
@@ -172,9 +175,12 @@ where
                     };
                 } else {
                     write
-                        .write_packet(&LoginDisconnect {
-                            reason: "Unexpected hello packet".into(),
-                        })
+                        .write_packet(
+                            None,
+                            &LoginDisconnect {
+                                reason: "Unexpected hello packet".into(),
+                            },
+                        )
                         .await?;
                     throw_explain!("Received unexpected hello packet")
                 }
@@ -194,9 +200,12 @@ where
                         .map_err(|_| err_explain!("Failed to decrypt returned challenge."))?;
                     if decrypted_challenge.ne(&challenge) {
                         write
-                            .write_packet(&LoginDisconnect {
-                                reason: "Invalid challenge response.".into(),
-                            })
+                            .write_packet(
+                                None,
+                                &LoginDisconnect {
+                                    reason: "Invalid challenge response.".into(),
+                                },
+                            )
                             .await?;
                         throw_explain!("Invalid challenge response.")
                     }
@@ -218,16 +227,20 @@ where
 
                     if matches!(&profile_id, Some(id) if id.ne(&profile.id)) {
                         write
-                            .write_packet(&LoginDisconnect {
-                                reason: "Invalid profile id".into(),
-                            })
+                            .write_packet(
+                                None,
+                                &LoginDisconnect {
+                                    reason: "Invalid profile id".into(),
+                                },
+                            )
                             .await?;
                         throw_explain!("Invalid profile id")
                     }
 
                     let client = MCClient::new(
-                        DecryptRead::new(read, &shared_secret),
-                        EncryptedWriter::new(write, &shared_secret),
+                        Some(&shared_secret),
+                        read,
+                        write,
                         connection_info,
                         name,
                         profile,
@@ -236,18 +249,24 @@ where
                     return Ok(client);
                 } else {
                     write
-                        .write_packet(&LoginDisconnect {
-                            reason: "Unexpected key packet.".into(),
-                        })
+                        .write_packet(
+                            None,
+                            &LoginDisconnect {
+                                reason: "Unexpected key packet.".into(),
+                            },
+                        )
                         .await?;
                     throw_explain!("Received key response before hello")
                 }
             }
             ServerBoundLoginRegsitry::CustomQuery { .. } => {
                 write
-                    .write_packet(&LoginDisconnect {
-                        reason: "Custom queries are not supported.".into(),
-                    })
+                    .write_packet(
+                        None,
+                        &LoginDisconnect {
+                            reason: "Custom queries are not supported.".into(),
+                        },
+                    )
                     .await?;
                 throw_explain!("Received custom query, unexpected during this state")
             }

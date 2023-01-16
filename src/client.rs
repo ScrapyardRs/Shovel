@@ -2,10 +2,9 @@ use std::io::Cursor;
 use std::sync::Arc;
 use std::time::Duration;
 
-use async_compression::tokio::write::{ZlibDecoder, ZlibEncoder};
 use drax::prelude::{DraxReadExt, DraxWriteExt, ErrorType, PacketComponent, Size};
 use drax::transport::buffer::var_num::size_var_int;
-use drax::transport::encryption::{DecryptRead, EncryptedWriter};
+use drax::transport::encryption::{Cipher, NewCipher};
 use drax::{throw_explain, PinnedLivelyResult};
 use mcprotocol::clientbound::login::ClientboundLoginRegistry::{
     LoginCompression, LoginGameProfile,
@@ -28,11 +27,19 @@ use crate::server::ServerPlayer;
 
 pub struct WrappedPacketWriter<W> {
     pub writer: W,
+    pub cipher: Option<Cipher>,
 }
 
 impl<W> WrappedPacketWriter<W> {
     pub fn new(writer: W) -> Self {
-        Self { writer }
+        Self {
+            writer,
+            cipher: None,
+        }
+    }
+
+    pub fn attach_cipher(&mut self, cipher: Cipher) {
+        self.cipher = Some(cipher);
     }
 
     pub fn lock(self) -> PacketWriter<W> {
@@ -42,155 +49,98 @@ impl<W> WrappedPacketWriter<W> {
     pub fn into_inner(self) -> W {
         self.writer
     }
+
+    pub fn write_and_cipher(&mut self) -> (&mut W, Option<&mut Cipher>) {
+        (&mut self.writer, self.cipher.as_mut())
+    }
 }
 
 pub type PacketWriter<W> = Arc<RwLock<WrappedPacketWriter<W>>>;
 
 pub trait McPacketReader {
-    fn read_packet<P: PacketComponent<()>>(&mut self) -> PinnedLivelyResult<P::ComponentType>;
+    fn read_packet<'a, P: PacketComponent<()>>(
+        &'a mut self,
+        cipher: Option<&'a mut Cipher>,
+    ) -> PinnedLivelyResult<'a, P::ComponentType>;
 
-    fn read_compressed_packet<P: PacketComponent<()>>(
-        &mut self,
-    ) -> PinnedLivelyResult<P::ComponentType>;
+    fn read_compressed_packet<'a, P: PacketComponent<()>>(
+        &'a mut self,
+        cipher: Option<&'a mut Cipher>,
+    ) -> PinnedLivelyResult<'a, P::ComponentType>;
 }
 
-impl<A: AsyncRead + Unpin + Send + Sync> McPacketReader for A {
-    fn read_packet<P: PacketComponent<()>>(&mut self) -> PinnedLivelyResult<P::ComponentType> {
+impl<A: AsyncRead + Unpin + Send + Sync + Sized> McPacketReader for A {
+    fn read_packet<'a, P: PacketComponent<()>>(
+        &'a mut self,
+        cipher: Option<&'a mut Cipher>,
+    ) -> PinnedLivelyResult<'a, P::ComponentType> {
         Box::pin(async move {
-            let packet_size = self.read_var_int().await?;
+            let (cipher, packet_size) = if let Some(cipher) = cipher {
+                let mut decrypt = <Self as DraxReadExt>::decrypt(self, cipher);
+                let size = decrypt.read_var_int().await?;
+                drop(decrypt);
+                (Some(cipher), size)
+            } else {
+                (None, self.read_var_int().await?)
+            };
             let mut next_bytes = self.take(packet_size as u64);
-            let packet = P::decode(&mut (), &mut next_bytes).await;
-            if next_bytes.limit() > 0 {
-                throw_explain!("Packet was not fully read")
+            let mut buffer = Cursor::new(Vec::with_capacity(packet_size as usize));
+            if tokio::io::copy(&mut next_bytes, &mut buffer).await? != packet_size as u64
+                || next_bytes.limit() > 0
+            {
+                throw_explain!("Packet size mismatch");
             }
+            let mut buffer = Cursor::new(if let Some(cipher) = cipher {
+                let mut buffer = buffer.into_inner();
+                drax::transport::encryption::AsyncStreamCipher::decrypt(cipher, &mut buffer);
+                buffer
+            } else {
+                buffer.into_inner()
+            });
+            let packet = P::decode(&mut (), &mut buffer).await;
             packet
         })
     }
 
-    fn read_compressed_packet<P: PacketComponent<()>>(
-        &mut self,
-    ) -> PinnedLivelyResult<P::ComponentType> {
-        Box::pin(async move {
-            let compressed_packet_size = self.read_var_int().await?;
-            let uncompressed_packet_size = self.read_var_int().await?;
-            let mut next_bytes = self.take(compressed_packet_size as u64 - 1);
-            if uncompressed_packet_size == 0 {
-                let packet = next_bytes.decode_component::<(), P>(&mut ()).await;
-                if next_bytes.limit() > 0 {
-                    throw_explain!("Packet was not fully read")
-                }
-                packet
-            } else {
-                let mut decoder = ZlibDecoder::new(Cursor::new(Vec::with_capacity(
-                    uncompressed_packet_size as usize,
-                )));
-                tokio::io::copy(&mut next_bytes, &mut decoder).await?;
-                if next_bytes.limit() > 0 {
-                    throw_explain!("Packet was not fully read")
-                }
-                let mut decompressed = Cursor::new(decoder.into_inner().into_inner());
-                let packet = decompressed.decode_component::<(), P>(&mut ()).await;
-                if decompressed.position() != decompressed.get_ref().len() as u64 {
-                    throw_explain!("Decompressed packet is not fully read")
-                } else {
-                    packet
-                }
-            }
-        })
+    fn read_compressed_packet<'a, P: PacketComponent<()>>(
+        &'a mut self,
+        _cipher: Option<&'a mut Cipher>,
+    ) -> PinnedLivelyResult<'a, P::ComponentType> {
+        Box::pin(async move { todo!("read_compressed_packet") })
     }
 }
 
 pub fn prepare_compressed_packet<P: PacketComponent<(), ComponentType = P> + Send + Sync>(
-    threshold: i32,
-    packet: &P,
+    _threshold: i32,
+    _packet: &P,
 ) -> PinnedLivelyResult<(i32, Option<Vec<u8>>)> {
-    Box::pin(async move {
-        let size = match P::size(packet, &mut ())? {
-            Size::Dynamic(x) | Size::Constant(x) => x as i32,
-        };
-        if size >= threshold {
-            log::debug!("Preparing compressed packet.. met threshold to compress.");
-            let mut zlib_compressor = ZlibEncoder::new(Cursor::new(vec![]));
-            zlib_compressor
-                .encode_component::<(), P>(&mut (), packet)
-                .await?;
-            zlib_compressor.flush().await?;
-            let prepared = zlib_compressor.into_inner().into_inner();
-            log::debug!(
-                "Preparing compressed packet.. met threshold to compress.\n\
-                Success! Compressed packet size: {} -> {}",
-                size,
-                prepared.len()
-            );
-            Ok((size, Some(prepared)))
-        } else {
-            log::debug!("Not compressing packet of size {}", size);
-            Ok((size, None))
-        }
-    })
+    Box::pin(async move { todo!("prepare_compressed_packet") })
 }
 
 pub trait McPacketWriter {
     fn write_compressed_packet<'a, P: PacketComponent<(), ComponentType = P> + Send + Sync>(
         &'a mut self,
-        threshold: i32,
-        packet: &'a P,
+        _cipher: Option<&'a mut Cipher>,
+        _threshold: i32,
+        _packet: &'a P,
     ) -> PinnedLivelyResult<'a, ()>
     where
         Self: AsyncWrite + Unpin + Send + Sync,
     {
-        Box::pin(async move {
-            let (packet_size, compressed) = prepare_compressed_packet(threshold, packet).await?;
-            if let Some(compressed) = compressed {
-                let size_v_int_size = size_var_int(packet_size as i32);
-                let len = compressed.len()
-                    + size_var_int(packet_size as i32)
-                    + size_var_int((compressed.len() + size_v_int_size) as i32);
-                let mut buffer = Cursor::new(Vec::with_capacity(len));
-                buffer
-                    .write_var_int(compressed.len() as i32 + size_v_int_size as i32)
-                    .await?;
-                buffer.write_var_int(packet_size).await?;
-                buffer.write_all(&compressed).await?;
-                let buffer = buffer.into_inner();
-                self.write_all(&buffer).await?;
-            } else {
-                let len = packet_size as usize + 1 + size_var_int(packet_size + 1);
-                let mut buffer = Cursor::new(Vec::with_capacity(len));
-                buffer.write_var_int(packet_size + 1).await?;
-                buffer.write_var_int(0).await?;
-                buffer.encode_component::<(), P>(&mut (), packet).await?;
-                let buffer = buffer.into_inner();
-                self.write_all(&buffer).await?;
-            }
-            Ok(())
-        })
+        Box::pin(async move { todo!("write_compressed_packet") })
     }
 
     fn write_packet<'a, P: PacketComponent<(), ComponentType = P> + Send + Sync>(
         &'a mut self,
+        cipher: Option<&'a mut Cipher>,
         packet: &'a P,
     ) -> PinnedLivelyResult<'a, ()>;
-
-    fn write_with_ref<'a, P: PacketComponent<(), ComponentType = P> + Send + Sync>(
-        &'a self,
-        _packet: &'a P,
-    ) -> PinnedLivelyResult<'a, ()> {
-        unimplemented!("write_with_ref not implemented for this type")
-    }
-
-    fn write_compressed_with_ref<'a, P: PacketComponent<(), ComponentType = P> + Send + Sync>(
-        &'a self,
-        _threshold: i32,
-        _packet: &'a P,
-    ) -> PinnedLivelyResult<'a, ()> {
-        unimplemented!("write_compressed_with_ref not implemented for this type")
-    }
 }
 
 impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
     fn write_packet<'a, P: PacketComponent<(), ComponentType = P> + Send + Sync>(
         &'a mut self,
+        cipher: Option<&'a mut Cipher>,
         packet: &'a P,
     ) -> PinnedLivelyResult<'a, ()> {
         Box::pin(async move {
@@ -201,7 +151,10 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
             let mut buffer = Cursor::new(Vec::with_capacity(len));
             buffer.write_var_int(size).await?;
             P::encode(packet, &mut (), &mut buffer).await?;
-            let buffer = buffer.into_inner();
+            let mut buffer = buffer.into_inner();
+            if let Some(cipher) = cipher {
+                drax::transport::encryption::AsyncStreamCipher::encrypt(cipher, &mut buffer);
+            }
             self.write_all(&buffer).await?;
             self.flush().await?;
             Ok(())
@@ -210,8 +163,9 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
 }
 
 pub struct MCClient<R, W> {
-    pub reader: DecryptRead<R>,
-    pub writer: PacketWriter<EncryptedWriter<W>>,
+    pub cipher: Option<Cipher>,
+    pub reader: R,
+    pub writer: PacketWriter<W>,
     compression_threshold: Option<i32>,
     pub connection_information: ConnectionInformation,
     pub username: String,
@@ -221,15 +175,21 @@ pub struct MCClient<R, W> {
 
 impl<R, W> MCClient<R, W> {
     pub fn new(
-        reader: DecryptRead<R>,
-        writer: EncryptedWriter<W>,
+        cipher_key: Option<&[u8]>,
+        reader: R,
+        writer: W,
         connection_information: ConnectionInformation,
         username: String,
         profile: GameProfile,
     ) -> Self {
         Self {
+            cipher: cipher_key.map(|key| NewCipher::new_from_slices(key, key).unwrap()),
             reader,
-            writer: WrappedPacketWriter { writer }.lock(),
+            writer: WrappedPacketWriter {
+                writer,
+                cipher: cipher_key.map(|key| NewCipher::new_from_slices(key, key).unwrap()),
+            }
+            .lock(),
             compression_threshold: None,
             connection_information,
             username,
@@ -248,7 +208,8 @@ macro_rules! outsource_write_packet {
             match self.compression_threshold {
                 None => {
                     let mut lock = self.writer.write().await;
-                    match lock.writer.write_packet(packet).await {
+                    let (writer, cipher) = lock.write_and_cipher();
+                    match writer.write_packet(cipher, packet).await {
                         Ok(()) => {
                             drop(lock);
                             Ok(())
@@ -259,28 +220,9 @@ macro_rules! outsource_write_packet {
                         }
                     }?;
                 }
-                Some(threshold) => match prepare_compressed_packet(threshold, packet).await? {
-                    (size, None) => {
-                        let mut lock = self.writer.write().await;
-                        lock.writer.write_var_int(size + 1).await?;
-                        lock.writer.write_var_int(0).await?;
-                        lock.writer
-                            .encode_component::<(), P>(&mut (), packet)
-                            .await?;
-                        drop(lock);
-                    }
-                    (size, Some(compressed)) => {
-                        let mut lock = self.writer.write().await;
-                        lock.writer
-                            .write_var_int(
-                                compressed.len() as i32 + size_var_int(size as i32) as i32,
-                            )
-                            .await?;
-                        lock.writer.write_var_int(size).await?;
-                        lock.writer.write_all(&compressed).await?;
-                        drop(lock);
-                    }
-                },
+                Some(_threshold) => {
+                    todo!()
+                }
             }
             Ok(())
         }
@@ -295,9 +237,8 @@ where
         &mut self,
     ) -> drax::prelude::Result<P::ComponentType> {
         match self.compression_threshold {
-            None => self.reader.read_packet::<P>().await,
-            // todo ensure read packet is sized correctly everywhere
-            Some(_) => self.reader.read_compressed_packet::<P>().await,
+            None => self.reader.read_packet::<P>(self.cipher.as_mut()).await,
+            Some(_) => todo!(),
         }
     }
 }
@@ -312,9 +253,12 @@ where
         }
         let mut lock = self.writer.write().await;
         lock.writer
-            .write_packet(&LoginGameProfile {
-                game_profile: self.profile.clone(),
-            })
+            .write_packet(
+                self.cipher.as_mut(),
+                &LoginGameProfile {
+                    game_profile: self.profile.clone(),
+                },
+            )
             .await?;
         drop(lock);
         self.logged_in = true;
@@ -330,11 +274,14 @@ where
         }
         self.compression_threshold = Some(threshold);
         let mut lock = self.writer.write().await;
-        lock.writer
-            .write_packet(&LoginCompression { threshold })
+        let (writer, cipher) = lock.write_and_cipher();
+        writer
+            .write_packet(cipher, &LoginCompression { threshold })
             .await?;
-        lock.writer
+        let (writer, cipher) = lock.write_and_cipher();
+        writer
             .write_compressed_packet(
+                cipher,
                 threshold,
                 &LoginGameProfile {
                     game_profile: self.profile.clone(),
@@ -366,7 +313,7 @@ where
 }
 
 pub struct StructuredWriterClone<W> {
-    writer: PacketWriter<EncryptedWriter<W>>,
+    writer: PacketWriter<W>,
     compression_threshold: Option<i32>,
 }
 
@@ -383,10 +330,7 @@ impl<W> StructuredWriterClone<W>
 where
     W: AsyncWrite + Unpin + Send + Sync,
 {
-    pub fn new(
-        writer: PacketWriter<EncryptedWriter<W>>,
-        compression_threshold: Option<i32>,
-    ) -> Self {
+    pub fn new(writer: PacketWriter<W>, compression_threshold: Option<i32>) -> Self {
         Self {
             writer,
             compression_threshold,
