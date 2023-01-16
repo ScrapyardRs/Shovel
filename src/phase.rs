@@ -13,6 +13,7 @@ pub mod login;
 pub mod play;
 pub mod status;
 
+#[derive(Debug, Clone)]
 pub struct ConnectionInformation {
     pub protocol_version: i32,
     pub address: SocketAddr,
