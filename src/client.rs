@@ -252,9 +252,10 @@ where
             throw_explain!("Client already logged in at this point.");
         }
         let mut lock = self.writer.write().await;
-        lock.writer
+        let (writer, cipher) = lock.write_and_cipher();
+        writer
             .write_packet(
-                self.cipher.as_mut(),
+                cipher,
                 &LoginGameProfile {
                     game_profile: self.profile.clone(),
                 },
