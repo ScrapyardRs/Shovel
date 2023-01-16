@@ -177,7 +177,7 @@ macro_rules! __internal_status_flip {
 macro_rules! status_builder {
     (
         description: $description:expr,
-        max: $max_players:literal,
+        max: $max_players:expr,
         online: $online_players:expr,
         $(sample: $player_sample:expr,)?
         $(favicon: $favicon:expr,)?
