@@ -90,12 +90,11 @@ impl<F> MinecraftServer<F>
 where
     F: StatusBuilder + Send + Sync + 'static,
 {
-    pub async fn spawn<C: Send + Sync + 'static>(
+    pub async fn spawn<C: Clone + Send + Sync + 'static>(
         self,
         client_context: C,
-        client_acceptor: fn(Arc<C>, ShovelClient) -> PinnedResult<()>,
+        client_acceptor: fn(C, ShovelClient) -> PinnedResult<()>,
     ) -> drax::prelude::Result<()> {
-        let client_context = Arc::new(client_context);
         let MinecraftServer {
             key,
             status_builder,
