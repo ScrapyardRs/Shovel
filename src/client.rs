@@ -528,12 +528,12 @@ impl ShovelClient {
                         seq += 1;
                         tokio::spawn(async move {
                             tokio::time::sleep(Duration::from_secs(1)).await;
-                            log::info!("Sending keep alive: {seq}");
-                            if let Err(err) =
-                                cloned_writer.write_packet(&KeepAlive { id: seq }).await
-                            {
-                                log::error!("Error sending keep alive: {}", err);
-                            };
+                            log::info!("Sending fake keep alive: {seq}");
+                            // if let Err(err) =
+                            //     cloned_writer.write_packet(&KeepAlive { id: seq }).await
+                            // {
+                            //     log::error!("Error sending keep alive: {}", err);
+                            // };
                         });
                         continue;
                     } else {
