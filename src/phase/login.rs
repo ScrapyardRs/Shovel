@@ -140,45 +140,45 @@ where
     loop {
         match read.read_packet::<ServerBoundLoginRegsitry>().await? {
             ServerBoundLoginRegsitry::Hello { name, profile_id } => {
-                let client = MCClient::new(
-                    DecryptRead::noop(read),
-                    EncryptedWriter::noop(write),
-                    connection_info,
-                    name.clone(),
-                    GameProfile {
-                        id: uuid::Uuid::new_v3(&Uuid::new_v4(), "Minecraft".as_bytes()),
-                        name,
-                        properties: vec![],
-                    },
-                );
-
-                return Ok(client);
-                // if let LoginState::ExpectingHello = state {
-                //     let key_der = private_key_to_der(&key);
-                //     let mut verify_token = [0, 0, 0, 0];
-                //     rand::thread_rng().fill_bytes(&mut verify_token);
-                //     write
-                //         .write_packet(
-                //             &mcprotocol::clientbound::login::ClientboundLoginRegistry::Hello {
-                //                 server_id: "".to_string(),
-                //                 public_key: key_der,
-                //                 challenge: verify_token.to_vec(),
-                //             },
-                //         )
-                //         .await?;
-                //     state = LoginState::ExpectingKeyResponse {
-                //         challenge: verify_token,
+                // let client = MCClient::new(
+                //     DecryptRead::noop(read),
+                //     EncryptedWriter::noop(write),
+                //     connection_info,
+                //     name.clone(),
+                //     GameProfile {
+                //         id: uuid::Uuid::new_v3(&Uuid::new_v4(), "Minecraft".as_bytes()),
                 //         name,
-                //         profile_id,
-                //     };
-                // } else {
-                //     write
-                //         .write_packet(&LoginDisconnect {
-                //             reason: "Unexpected hello packet".into(),
-                //         })
-                //         .await?;
-                //     throw_explain!("Received unexpected hello packet")
-                // }
+                //         properties: vec![],
+                //     },
+                // );
+                //
+                // return Ok(client);
+                if let LoginState::ExpectingHello = state {
+                    let key_der = private_key_to_der(&key);
+                    let mut verify_token = [0, 0, 0, 0];
+                    rand::thread_rng().fill_bytes(&mut verify_token);
+                    write
+                        .write_packet(
+                            &mcprotocol::clientbound::login::ClientboundLoginRegistry::Hello {
+                                server_id: "".to_string(),
+                                public_key: key_der,
+                                challenge: verify_token.to_vec(),
+                            },
+                        )
+                        .await?;
+                    state = LoginState::ExpectingKeyResponse {
+                        challenge: verify_token,
+                        name,
+                        profile_id,
+                    };
+                } else {
+                    write
+                        .write_packet(&LoginDisconnect {
+                            reason: "Unexpected hello packet".into(),
+                        })
+                        .await?;
+                    throw_explain!("Received unexpected hello packet")
+                }
             }
             ServerBoundLoginRegsitry::Key {
                 key_bytes,
