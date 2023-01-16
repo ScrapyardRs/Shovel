@@ -254,8 +254,19 @@ macro_rules! outsource_write_packet {
             match self.compression_threshold {
                 None => {
                     let mut lock = self.writer.write().await;
-                    lock.writer.write_packet(packet).await?;
-                    drop(lock);
+                    log::info!("Acquired lock and begun packet writing...");
+                    match lock.writer.write_packet(packet).await {
+                        Ok(()) => {
+                            log::info!("Packet written");
+                            drop(lock);
+                            Ok(())
+                        }
+                        Err(e) => {
+                            drop(lock);
+                            log::error!("Error writing packet: {}", e);
+                            Err(e)
+                        }
+                    }?;
                 }
                 Some(threshold) => match prepare_compressed_packet(threshold, packet).await? {
                     (size, None) => {
