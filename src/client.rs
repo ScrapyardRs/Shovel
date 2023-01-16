@@ -435,7 +435,8 @@ impl ShovelClient {
                 is_flat,
                 last_death_location,
             })
-            .await
+            .await?;
+        self.server_player.write_packet(&KeepAlive { id: 0 }).await
     }
 
     pub async fn emit_brand<S: Into<String>>(&self, brand: S) -> drax::prelude::Result<()> {
@@ -446,8 +447,7 @@ impl ShovelClient {
                 identifier: format!("minecraft:brand"),
                 data: brand_data.into_inner(),
             })
-            .await?;
-        Ok(())
+            .await
     }
 
     pub async fn set_initial_position(
@@ -481,9 +481,7 @@ impl ShovelClient {
                 id: player_id,
                 dismount: false,
             })
-            .await?;
-
-        Ok(())
+            .await
     }
 
     pub fn keep_alive(mut self) -> (GameProfile, UnboundedReceiver<ServerboundPlayRegistry>) {
@@ -491,11 +489,7 @@ impl ShovelClient {
         let profile_clone = self.server_player.profile.clone();
         let cloned_writer = self.server_player.clone_writer();
         tokio::spawn(async move {
-            let mut seq = 0;
-            if let Err(err) = cloned_writer.write_packet(&KeepAlive { id: seq }).await {
-                log::error!("Error sending keep alive: {}", err);
-                return;
-            };
+            let mut seq = 1;
             loop {
                 let packet = match self
                     .server_player
@@ -512,10 +506,12 @@ impl ShovelClient {
                 };
                 if let ServerboundPlayRegistry::KeepAlive { keep_alive_id } = &packet {
                     let cloned_writer = cloned_writer.clone();
+                    println!("Received keep alive {keep_alive_id}, {seq}");
                     if *keep_alive_id == seq {
                         seq += 1;
                         tokio::spawn(async move {
                             tokio::time::sleep(Duration::from_secs(1)).await;
+                            log::info!("Sending keep alive: {seq}");
                             if let Err(err) =
                                 cloned_writer.write_packet(&KeepAlive { id: seq }).await
                             {
