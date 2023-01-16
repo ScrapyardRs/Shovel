@@ -90,10 +90,12 @@ impl<F> MinecraftServer<F>
 where
     F: StatusBuilder + Send + Sync + 'static,
 {
-    pub async fn spawn(
+    pub async fn spawn<C: Send + Sync + 'static>(
         self,
-        client_acceptor: fn(ShovelClient) -> PinnedResult<()>,
+        client_context: C,
+        client_acceptor: fn(Arc<C>, ShovelClient) -> PinnedResult<()>,
     ) -> drax::prelude::Result<()> {
+        let client_context = Arc::new(client_context);
         let MinecraftServer {
             key,
             status_builder,
@@ -112,6 +114,7 @@ where
                 .cloned()
                 .map(Ok)
                 .unwrap_or_else(|| throw_explain!("No status builder provided."))?;
+            let client_context = client_context.clone();
 
             tokio::spawn(async move {
                 let (read, write) = stream.into_split();
@@ -120,9 +123,12 @@ where
                         let client_name = client.profile.name.clone();
                         // new player added
                         client_count.fetch_add(1, Ordering::SeqCst);
-                        match (client_acceptor)(ShovelClient {
-                            server_player: client,
-                        })
+                        match (client_acceptor)(
+                            client_context,
+                            ShovelClient {
+                                server_player: client,
+                            },
+                        )
                         .await
                         {
                             Ok(_) => {
@@ -201,13 +207,13 @@ macro_rules! spawn_server {
         $(@bind $bind:expr,)?
         $(@status $status_builder:expr,)?
         $(@mc_status $mc_status_builder:expr,)?
-        $client_ident:ident -> {$($client_acceptor_tokens:tt)*}
+        $client_context_ident:ident, $client_ident:ident -> {$($client_acceptor_tokens:tt)*}
     ) => {
         $crate::server::MinecraftServer::new()
             $(.bind($bind.to_string()))?
             $(.build_status($status_builder))?
             $(.build_mc_status($mc_status_builder))?
-            .spawn(|mut $client_ident| {
+            .spawn(|$client_context_ident, mut $client_ident| {
                 Box::pin(async move {
                     $($client_acceptor_tokens)*
                 })
