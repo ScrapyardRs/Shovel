@@ -199,15 +199,15 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
             let size = match P::size(packet, &mut ())? {
                 Size::Dynamic(x) | Size::Constant(x) => x as i32,
             };
+            log::info!("Size guess: {}", size);
             let len = size_var_int(size) + size as usize;
+            log::info!("Len: {}", len);
             let mut buffer = Cursor::new(Vec::with_capacity(len));
             buffer.write_var_int(size).await?;
-            log::info!("PACKET {id} PRE ENCODE");
             P::encode(packet, &mut (), &mut buffer).await?;
-            log::info!("PACKET {id} ENCODE COMPLETE");
             let buffer = buffer.into_inner();
+            log::info!("Final len: {}", buffer.len());
             self.write_all(&buffer).await?;
-            log::info!("PACKET {id} FLUSH START");
             self.flush().await?;
             log::info!("PACKET {id} FLUSHED");
             Ok(())
