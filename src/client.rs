@@ -492,7 +492,10 @@ impl ShovelClient {
         let cloned_writer = self.server_player.clone_writer();
         tokio::spawn(async move {
             let mut seq = 0;
-            cloned_writer.write_packet(&KeepAlive { id: seq }).await?;
+            if let Err(err) = cloned_writer.write_packet(&KeepAlive { id: seq }).await {
+                log::error!("Error sending keep alive: {}", err);
+                return;
+            };
             loop {
                 let packet = match self
                     .server_player
