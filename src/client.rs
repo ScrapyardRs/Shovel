@@ -437,9 +437,9 @@ impl ShovelClient {
             .await
     }
 
-    pub async fn emit_brand<S: AsRef<String>>(&self, brand: S) -> drax::prelude::Result<()> {
+    pub async fn emit_brand<S: Into<String>>(&self, brand: S) -> drax::prelude::Result<()> {
         let mut brand_data = Cursor::new(Vec::new());
-        String::encode(brand.as_ref(), &mut (), &mut brand_data).await?;
+        String::encode(&brand.into(), &mut (), &mut brand_data).await?;
         self.server_player
             .write_packet(&CustomPayload {
                 identifier: format!("minecraft:brand"),
