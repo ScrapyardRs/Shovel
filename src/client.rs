@@ -387,7 +387,7 @@ where
 }
 
 pub struct ShovelClient {
-    server_player: ServerPlayer,
+    pub server_player: ServerPlayer,
 }
 
 impl ShovelClient {

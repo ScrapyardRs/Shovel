@@ -1,5 +1,3 @@
-mod binder;
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -9,7 +7,7 @@ use mcprotocol::clientbound::status::StatusResponse;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
 
-use crate::client::MCClient;
+use crate::client::{MCClient, ShovelClient};
 use crate::crypto::MCPrivateKey;
 use crate::phase::process_handshake;
 use crate::phase::status::StatusBuilder;
@@ -94,7 +92,7 @@ where
 {
     pub async fn spawn(
         self,
-        client_acceptor: fn(ServerPlayer) -> PinnedResult<()>,
+        client_acceptor: fn(ShovelClient) -> PinnedResult<()>,
     ) -> drax::prelude::Result<()> {
         let MinecraftServer {
             key,
@@ -122,7 +120,11 @@ where
                         let client_name = client.profile.name.clone();
                         // new player added
                         client_count.fetch_add(1, Ordering::SeqCst);
-                        match tokio::task::spawn_local((client_acceptor)(client)).await {
+                        match tokio::task::spawn_local((client_acceptor)(ShovelClient {
+                            server_player: client,
+                        }))
+                        .await
+                        {
                             Ok(Ok(_)) => {
                                 log::info!("Client {} disconnected naturally.", client_name);
                             }
