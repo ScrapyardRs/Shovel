@@ -489,7 +489,7 @@ impl ShovelClient {
         let profile_clone = self.server_player.profile.clone();
         let cloned_writer = self.server_player.clone_writer();
         tokio::spawn(async move {
-            let mut seq = 1;
+            let mut seq = 0;
             loop {
                 let packet = match self
                     .server_player
