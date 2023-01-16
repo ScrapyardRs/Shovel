@@ -118,8 +118,8 @@ pub async fn login_client<R, W>(
     connection_info: ConnectionInformation,
 ) -> drax::prelude::Result<MCClient<R, W>>
 where
-    R: AsyncRead + Unpin,
-    W: AsyncWrite + Unpin,
+    R: AsyncRead + Unpin + Send + Sync,
+    W: AsyncWrite + Unpin + Send + Sync,
 {
     if connection_info.protocol_version != crate::version_constants::CURRENT_PROTOCOL_VERSION {
         write

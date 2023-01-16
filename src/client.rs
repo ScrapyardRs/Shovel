@@ -2,20 +2,28 @@ use std::io::Cursor;
 use std::sync::Arc;
 
 use async_compression::tokio::write::{ZlibDecoder, ZlibEncoder};
-use drax::prelude::{DraxReadExt, DraxWriteExt, PacketComponent, Size};
+use drax::prelude::{DraxReadExt, DraxWriteExt, ErrorType, PacketComponent, Size};
 use drax::transport::buffer::var_num::size_var_int;
 use drax::transport::encryption::{DecryptRead, EncryptedWriter};
 use drax::{throw_explain, PinnedLivelyResult};
 use mcprotocol::clientbound::login::ClientboundLoginRegistry::{
     LoginCompression, LoginGameProfile,
 };
-use mcprotocol::clientbound::play::ClientboundPlayRegistry::Disconnect;
+use mcprotocol::clientbound::play::ClientboundPlayRegistry::{
+    ClientLogin, CustomPayload, Disconnect, PlayerPosition, SetDefaultSpawnPosition,
+};
+use mcprotocol::clientbound::play::{ClientboundPlayRegistry, DelegateStr, RelativeArgument};
 use mcprotocol::common::chat::Chat;
+use mcprotocol::common::play::{BlockPos, Location, SimpleLocation};
 use mcprotocol::common::GameProfile;
+use mcprotocol::serverbound::play::ServerboundPlayRegistry;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::RwLock;
 
+use crate::phase::play::ClientLoginProperties;
 use crate::phase::ConnectionInformation;
+use crate::server::ServerPlayer;
 
 pub struct WrappedPacketWriter<W> {
     pub writer: W,
@@ -45,7 +53,7 @@ pub trait McPacketReader {
     ) -> PinnedLivelyResult<P::ComponentType>;
 }
 
-impl<A: AsyncRead + Unpin> McPacketReader for A {
+impl<A: AsyncRead + Unpin + Send + Sync> McPacketReader for A {
     fn read_packet<P: PacketComponent<()>>(&mut self) -> PinnedLivelyResult<P::ComponentType> {
         Box::pin(async move {
             let packet_size = self.read_var_int().await?;
@@ -91,7 +99,7 @@ impl<A: AsyncRead + Unpin> McPacketReader for A {
     }
 }
 
-pub fn prepare_compressed_packet<P: PacketComponent<(), ComponentType = P>>(
+pub fn prepare_compressed_packet<P: PacketComponent<(), ComponentType = P> + Send + Sync>(
     threshold: i32,
     packet: &P,
 ) -> PinnedLivelyResult<(i32, Option<Vec<u8>>)> {
@@ -122,13 +130,13 @@ pub fn prepare_compressed_packet<P: PacketComponent<(), ComponentType = P>>(
 }
 
 pub trait McPacketWriter {
-    fn write_compressed_packet<'a, P: PacketComponent<(), ComponentType = P>>(
+    fn write_compressed_packet<'a, P: PacketComponent<(), ComponentType = P> + Send + Sync>(
         &'a mut self,
         threshold: i32,
         packet: &'a P,
     ) -> PinnedLivelyResult<'a, ()>
     where
-        Self: AsyncWrite + Unpin,
+        Self: AsyncWrite + Unpin + Send + Sync,
     {
         Box::pin(async move {
             let (packet_size, compressed) = prepare_compressed_packet(threshold, packet).await?;
@@ -158,19 +166,19 @@ pub trait McPacketWriter {
         })
     }
 
-    fn write_packet<'a, P: PacketComponent<(), ComponentType = P>>(
+    fn write_packet<'a, P: PacketComponent<(), ComponentType = P> + Send + Sync>(
         &'a mut self,
         packet: &'a P,
     ) -> PinnedLivelyResult<'a, ()>;
 
-    fn write_with_ref<'a, P: PacketComponent<(), ComponentType = P>>(
+    fn write_with_ref<'a, P: PacketComponent<(), ComponentType = P> + Send + Sync>(
         &'a self,
         _packet: &'a P,
     ) -> PinnedLivelyResult<'a, ()> {
         unimplemented!("write_with_ref not implemented for this type")
     }
 
-    fn write_compressed_with_ref<'a, P: PacketComponent<(), ComponentType = P>>(
+    fn write_compressed_with_ref<'a, P: PacketComponent<(), ComponentType = P> + Send + Sync>(
         &'a self,
         _threshold: i32,
         _packet: &'a P,
@@ -179,8 +187,8 @@ pub trait McPacketWriter {
     }
 }
 
-impl<A: AsyncWrite + Unpin> McPacketWriter for A {
-    fn write_packet<'a, P: PacketComponent<(), ComponentType = P>>(
+impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
+    fn write_packet<'a, P: PacketComponent<(), ComponentType = P> + Send + Sync>(
         &'a mut self,
         packet: &'a P,
     ) -> PinnedLivelyResult<'a, ()> {
@@ -231,7 +239,7 @@ impl<R, W> MCClient<R, W> {
 
 macro_rules! outsource_write_packet {
     () => {
-        pub async fn write_packet<P: PacketComponent<(), ComponentType = P>>(
+        pub async fn write_packet<P: PacketComponent<(), ComponentType = P> + Send + Sync>(
             &self,
             packet: &P,
         ) -> drax::prelude::Result<()> {
@@ -271,7 +279,7 @@ macro_rules! outsource_write_packet {
 
 impl<R, W> MCClient<R, W>
 where
-    R: AsyncRead + Unpin,
+    R: AsyncRead + Unpin + Send + Sync,
 {
     pub async fn read_packet<P: PacketComponent<()>>(
         &mut self,
@@ -286,7 +294,7 @@ where
 
 impl<R, W> MCClient<R, W>
 where
-    W: AsyncWrite + Unpin,
+    W: AsyncWrite + Unpin + Send + Sync,
 {
     pub async fn complete_login(&mut self) -> drax::prelude::Result<()> {
         if self.logged_in {
@@ -352,9 +360,18 @@ pub struct StructuredWriterClone<W> {
     compression_threshold: Option<i32>,
 }
 
+impl<W> Clone for StructuredWriterClone<W> {
+    fn clone(&self) -> Self {
+        Self {
+            writer: self.writer.clone(),
+            compression_threshold: self.compression_threshold,
+        }
+    }
+}
+
 impl<W> StructuredWriterClone<W>
 where
-    W: AsyncWrite + Unpin,
+    W: AsyncWrite + Unpin + Send + Sync,
 {
     pub fn new(
         writer: PacketWriter<EncryptedWriter<W>>,
@@ -367,4 +384,146 @@ where
     }
 
     outsource_write_packet!();
+}
+
+pub struct ShovelClient {
+    server_player: ServerPlayer,
+}
+
+impl ShovelClient {
+    pub async fn send_client_login(
+        &self,
+        properties: ClientLoginProperties,
+    ) -> drax::prelude::Result<()> {
+        let ClientLoginProperties {
+            player_id,
+            hardcore,
+            game_type,
+            previous_game_type,
+            seed,
+            max_players,
+            chunk_radius,
+            simulation_distance,
+            reduced_debug_info,
+            show_death_screen,
+            is_debug,
+            is_flat,
+            last_death_location,
+        } = properties;
+        self.server_player
+            .write_packet(&ClientLogin {
+                player_id,
+                hardcore,
+                game_type,
+                previous_game_type,
+                levels: vec![
+                    "minecraft:overworld".to_string(),
+                    "minecraft:the_end".to_string(),
+                    "minecraft:the_nether".to_string(),
+                ],
+                codec: crate::phase::play::get_current_dimension_snapshot().await?,
+                dimension_type: "minecraft:overworld".to_string(),
+                dimension: "minecraft:overworld".to_string(),
+                seed,
+                max_players,
+                chunk_radius,
+                simulation_distance,
+                reduced_debug_info,
+                show_death_screen,
+                is_debug,
+                is_flat,
+                last_death_location,
+            })
+            .await
+    }
+
+    pub async fn emit_brand<S: AsRef<String>>(&self, brand: S) -> drax::prelude::Result<()> {
+        let mut brand_data = Cursor::new(Vec::new());
+        String::encode(brand.as_ref(), &mut (), &mut brand_data).await?;
+        self.server_player
+            .write_packet(&CustomPayload {
+                identifier: format!("minecraft:brand"),
+                data: brand_data.into_inner(),
+            })
+            .await?;
+        Ok(())
+    }
+
+    pub async fn set_initial_position(
+        &self,
+        x: f64,
+        y: f64,
+        z: f64,
+        yaw: f32,
+        pitch: f32,
+        player_id: i32,
+    ) -> drax::prelude::Result<()> {
+        self.server_player
+            .write_packet(&SetDefaultSpawnPosition {
+                pos: BlockPos {
+                    x: x as i32,
+                    y: y as i32,
+                    z: z as i32,
+                },
+                angle: 0.0,
+            })
+            .await?;
+
+        self.server_player
+            .write_packet(&PlayerPosition {
+                location: Location {
+                    inner_loc: SimpleLocation { x, y, z },
+                    yaw,
+                    pitch,
+                },
+                relative_arguments: RelativeArgument::new(0x8),
+                id: player_id,
+                dismount: false,
+            })
+            .await?;
+
+        Ok(())
+    }
+
+    pub fn keep_alive(mut self) -> (GameProfile, UnboundedReceiver<ServerboundPlayRegistry>) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let profile_clone = self.server_player.profile.clone();
+        let cloned_writer = self.server_player.clone_writer();
+        tokio::spawn(async move {
+            let mut seq = 0;
+            loop {
+                let packet = match self
+                    .server_player
+                    .read_packet::<ServerboundPlayRegistry>()
+                    .await
+                {
+                    Ok(packet) => packet,
+                    Err(err) => {
+                        if !matches!(err.error_type, ErrorType::EOF) {
+                            log::error!("Error during client read: {}", err);
+                        }
+                        return;
+                    }
+                };
+                if let ServerboundPlayRegistry::KeepAlive { keep_alive_id } = &packet {
+                    let cloned_writer = cloned_writer.clone();
+                    if *keep_alive_id == seq {
+                        seq += 1;
+                        tokio::spawn(async move {
+                            cloned_writer
+                                .write_packet(&ClientboundPlayRegistry::KeepAlive { id: seq })
+                                .await
+                                .unwrap();
+                        });
+                        continue;
+                    }
+                } else {
+                    if let Err(err) = tx.send(packet) {
+                        return;
+                    };
+                }
+            }
+        });
+        (profile_clone, rx)
+    }
 }

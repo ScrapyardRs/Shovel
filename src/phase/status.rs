@@ -11,7 +11,11 @@ pub trait StatusBuilder {
     fn build(&self) -> PinnedLivelyResult<StatusResponse>;
 }
 
-pub async fn accept_status_client<F: StatusBuilder, R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+pub async fn accept_status_client<
+    F: StatusBuilder,
+    R: AsyncRead + Unpin + Send + Sync,
+    W: AsyncWrite + Unpin + Send + Sync,
+>(
     status_builder: Arc<F>,
     mut read: R,
     mut write: W,

@@ -21,7 +21,11 @@ pub struct ConnectionInformation {
     pub compression_threshold: Option<i32>,
 }
 
-pub async fn process_handshake<F: StatusBuilder, R: AsyncRead + Unpin, W: AsyncWrite + Unpin>(
+pub async fn process_handshake<
+    F: StatusBuilder,
+    R: AsyncRead + Unpin + Send + Sync,
+    W: AsyncWrite + Unpin + Send + Sync,
+>(
     status_builder: Arc<F>,
     key: Arc<MCPrivateKey>,
     mut read: R,
