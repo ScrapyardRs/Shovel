@@ -11,7 +11,7 @@ use mcprotocol::clientbound::login::ClientboundLoginRegistry::{
     LoginCompression, LoginGameProfile,
 };
 use mcprotocol::clientbound::play::ClientboundPlayRegistry::{
-    ClientLogin, CustomPayload, Disconnect, PlayerPosition, SetDefaultSpawnPosition,
+    ClientLogin, CustomPayload, Disconnect, KeepAlive, PlayerPosition, SetDefaultSpawnPosition,
 };
 use mcprotocol::clientbound::play::{ClientboundPlayRegistry, RelativeArgument};
 use mcprotocol::common::chat::Chat;
@@ -492,6 +492,7 @@ impl ShovelClient {
         let cloned_writer = self.server_player.clone_writer();
         tokio::spawn(async move {
             let mut seq = 0;
+            cloned_writer.write_packet(&KeepAlive { id: seq }).await?;
             loop {
                 let packet = match self
                     .server_player
@@ -508,20 +509,19 @@ impl ShovelClient {
                 };
                 if let ServerboundPlayRegistry::KeepAlive { keep_alive_id } = &packet {
                     let cloned_writer = cloned_writer.clone();
-                    log::info!("Received keep alive {keep_alive_id}");
                     if *keep_alive_id == seq {
                         seq += 1;
                         tokio::spawn(async move {
                             tokio::time::sleep(Duration::from_secs(1)).await;
-                            log::info!("Sending keep alive {seq}");
-                            if let Err(err) = cloned_writer
-                                .write_packet(&ClientboundPlayRegistry::KeepAlive { id: seq })
-                                .await
+                            if let Err(err) =
+                                cloned_writer.write_packet(&KeepAlive { id: seq }).await
                             {
                                 log::error!("Error sending keep alive: {}", err);
                             };
                         });
                         continue;
+                    } else {
+                        return;
                     }
                 } else {
                     if let Err(_) = tx.send(packet) {
