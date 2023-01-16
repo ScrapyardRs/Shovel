@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use drax::prelude::Uuid;
-use drax::transport::encryption::{DecryptRead, Decryption, EncryptedWriter, Encryption};
+use drax::transport::encryption::{DecryptRead, EncryptedWriter};
 use drax::{err_explain, throw_explain};
 use hyper::body::to_bytes;
 use hyper::{Body, Client};
@@ -11,7 +11,6 @@ use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::login::ServerBoundLoginRegsitry;
 use num_bigint::BigInt;
 use rand::RngCore;
-use rsa::signature::digest::crypto_common::KeyIvInit;
 use rsa::PaddingScheme;
 use tokio::io::{AsyncRead, AsyncWrite};
 
@@ -226,43 +225,15 @@ where
                         throw_explain!("Invalid profile id")
                     }
 
-                    let encryption = Encryption::new_from_slices(&shared_secret, &shared_secret);
-                    let decryption = Decryption::new_from_slices(&shared_secret, &shared_secret);
+                    let client = MCClient::new(
+                        DecryptRead::new(read, &shared_secret),
+                        EncryptedWriter::new(write, &shared_secret),
+                        connection_info,
+                        name,
+                        profile,
+                    );
 
-                    match (encryption, decryption) {
-                        (Ok(encryption), Ok(decryption)) => {
-                            let client = MCClient::new(
-                                DecryptRead::new(read, decryption),
-                                EncryptedWriter::new(write, encryption),
-                                connection_info,
-                                name,
-                                profile,
-                            );
-
-                            return Ok(client);
-                        }
-                        (Err(err), Ok(_)) | (Ok(_), Err(err)) => {
-                            write
-                                .write_packet(&LoginDisconnect {
-                                    reason: "Failed to initialize encryption or decryption.".into(),
-                                })
-                                .await?;
-                            throw_explain!(format!(
-                                "Failed to initialize encryption or decryption: {err}"
-                            ))
-                        }
-                        (Err(enc_err), Err(dec_err)) => {
-                            write
-                                .write_packet(&LoginDisconnect {
-                                    reason: "Failed to initialize encryption and decryption."
-                                        .into(),
-                                })
-                                .await?;
-                            throw_explain!(format!(
-                                "Failed to initialize encryption and decryption: {enc_err} + {dec_err}"
-                            ))
-                        }
-                    }
+                    return Ok(client);
                 } else {
                     write
                         .write_packet(&LoginDisconnect {
