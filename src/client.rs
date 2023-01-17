@@ -150,8 +150,9 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
             let len = size_var_int(size) + size as usize;
             let mut buffer = Cursor::new(Vec::with_capacity(len));
             buffer.write_var_int(size).await?;
-            P::encode(packet, &mut (), &mut buffer).await?;
+            P::encode(&packet, &mut (), &mut buffer).await?;
             let mut buffer = buffer.into_inner();
+            println!("Encoding packet {:?}", buffer);
             if let Some(cipher) = cipher {
                 drax::transport::encryption::AsyncStreamCipher::encrypt(cipher, &mut buffer);
             }
