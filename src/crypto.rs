@@ -1,7 +1,7 @@
 use openssl::sha::sha1;
 use rand::rngs::OsRng;
 
-use rsa::pkcs1v15::VerifyingKey;
+pub use rsa::pkcs1v15::VerifyingKey;
 use rsa::signature::digest::FixedOutput;
 use rsa::signature::{Signature, Verifier};
 use rsa::{BigUint, PaddingScheme, PublicKeyParts, RsaPublicKey};
@@ -54,8 +54,7 @@ impl From<rsa::signature::Error> for CapturedRsaError {
 }
 
 pub fn key_from_der(der: &[u8]) -> Result<MCPublicKey, CapturedRsaError> {
-    let (n, e) =
-        rsa_der::public_key_from_der(der).map_err(CapturedRsaError::RsaDerError)?;
+    let (n, e) = rsa_der::public_key_from_der(der).map_err(CapturedRsaError::RsaDerError)?;
     RsaPublicKey::new(BigUint::from_bytes_be(&n), BigUint::from_bytes_be(&e))
         .map_err(CapturedRsaError::RsaError)
 }
