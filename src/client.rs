@@ -156,7 +156,6 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
                 drax::transport::encryption::AsyncStreamCipher::encrypt(cipher, &mut buffer);
             }
             self.write_all(&buffer).await?;
-            self.flush().await?;
             Ok(())
         })
     }
