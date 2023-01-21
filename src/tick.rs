@@ -56,7 +56,9 @@ where
 }
 
 #[allow(clippy::needless_lifetimes)]
-pub fn tick_entities<'a, T>(entities: &mut Vec<T>) -> AwaitingEntities<T::AwaitingEntityOutput<'a>>
+pub fn tick_entities<'a, T>(
+    entities: &'a mut Vec<T>,
+) -> AwaitingEntities<T::AwaitingEntityOutput<'a>>
 where
     T: CaptureAwaitingEntity,
 {
