@@ -58,6 +58,21 @@ pub struct PacketLocker {
 }
 
 impl PacketLocker {
+    pub fn mutate_receiver<
+        F: Fn(
+            UnboundedReceiver<ServerboundPlayRegistry>,
+        ) -> UnboundedReceiver<ServerboundPlayRegistry>,
+    >(
+        mut self,
+        mutate_func: F,
+    ) -> Self {
+        self.packet_listener = {
+            let pl = self.packet_listener;
+            mutate_func(pl)
+        };
+        self
+    }
+
     pub fn next_packet(&mut self) -> Result<Option<ServerboundPlayRegistry>, ()> {
         match self.packet_listener.try_recv() {
             Ok(packet) => Ok(Some(packet)),
@@ -80,6 +95,18 @@ pub struct ConnectedPlayer {
 }
 
 impl ConnectedPlayer {
+    pub fn mutate_receiver<
+        F: Fn(
+            UnboundedReceiver<ServerboundPlayRegistry>,
+        ) -> UnboundedReceiver<ServerboundPlayRegistry>,
+    >(
+        mut self,
+        func: F,
+    ) -> Self {
+        self.packets = self.packets.mutate_receiver(func);
+        self
+    }
+
     pub async fn write_packet<P: PacketComponent<(), ComponentType = P> + Send + Sync>(
         &self,
         packet: &P,
