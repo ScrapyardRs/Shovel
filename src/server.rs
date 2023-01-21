@@ -247,6 +247,8 @@ macro_rules! spawn_server {
             $(.bind($bind.to_string()))?
             $(.build_status($status_builder))?
             $(.build_mc_status($mc_status_builder))?
+            $(.compression_threshold($threshold))?
+            $(.initial_location($initial_location))?
             .spawn($ctx, |$client_context_ident, mut $client_ident| {
                 Box::pin(async move {
                     $($client_acceptor_tokens)*
