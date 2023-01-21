@@ -463,7 +463,7 @@ impl ShovelClient {
             .await
     }
 
-    pub async fn keep_alive(mut self) -> ConnectedPlayer {
+    pub fn keep_alive(mut self) -> ConnectedPlayer {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let profile_clone = self.server_player.profile.clone();
         let cloned_writer = self.server_player.clone_writer();
