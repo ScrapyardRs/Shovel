@@ -82,7 +82,7 @@ where
     T: AwaitingEntity,
     E: AwaitingEntity,
 {
-    type Output = ();
+    type Output = bool;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut me = self.project();
@@ -90,7 +90,10 @@ where
 
         match me.base.poll_tick(cx) {
             Ok(true) => found_packets = true,
-            Ok(false) | Err(()) => {}
+            Ok(false) => {}
+            Err(()) => {
+                return Poll::Ready(false);
+            }
         }
 
         if let Poll::Ready(()) = Pin::new(&mut me.entities).poll(cx) {
@@ -98,7 +101,7 @@ where
         };
 
         if found_packets {
-            Poll::Ready(())
+            Poll::Ready(true)
         } else {
             Poll::Pending
         }
