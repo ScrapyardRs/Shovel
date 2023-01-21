@@ -139,8 +139,8 @@ impl ConnectedPlayer {
         pending_location.yaw = crate::math::wrap_degrees(pending_location.yaw);
         pending_location.pitch = crate::math::wrap_degrees(pending_location.pitch);
 
-        let y_rot_bits = f32::floor((pending_location.yaw * 256.0) / 360.0) as i32;
-        let x_rot_bits = f32::floor((pending_location.pitch * 256.0) / 360.0) as i32;
+        let x_rot_bits = f32::floor((pending_location.yaw * 256.0) / 360.0) as i32;
+        let y_rot_bits = f32::floor((pending_location.pitch * 256.0) / 360.0) as i32;
 
         let delta_x = self.position.inner_loc.x - pending_location.inner_loc.x;
         let delta_y = self.position.inner_loc.y - pending_location.inner_loc.y;

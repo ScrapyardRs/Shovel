@@ -536,8 +536,8 @@ impl ShovelClient {
                                 y: *y,
                                 z: *z,
                             },
-                            pitch: *x_rot,
-                            yaw: *y_rot,
+                            yaw: *x_rot,
+                            pitch: *y_rot,
                         };
                         lock.on_ground = *on_ground;
                         if !lock.is_loaded {
@@ -551,8 +551,8 @@ impl ShovelClient {
                         on_ground,
                     } => {
                         let mut lock = pending_position.write().await;
-                        lock.location.pitch = *x_rot;
-                        lock.location.yaw = *y_rot;
+                        lock.location.yaw = *x_rot;
+                        lock.location.pitch = *y_rot;
                         lock.on_ground = *on_ground;
                         if !lock.is_loaded {
                             lock.is_loaded = true;
