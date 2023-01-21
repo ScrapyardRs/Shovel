@@ -591,6 +591,7 @@ impl ShovelClient {
         }
     }
 
+    #[inline]
     pub async fn write_packet<P: PacketComponent<(), ComponentType = P> + Send + Sync>(
         &self,
         packet: &P,
