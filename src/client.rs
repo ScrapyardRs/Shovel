@@ -1,4 +1,3 @@
-use std::collections::VecDeque;
 use std::io::Cursor;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -383,8 +382,9 @@ impl ShovelClient {
         })
     }
 
-    pub async fn send_client_login(
+    pub async fn send_client_login<S: Into<String>>(
         &self,
+        brand: S,
         arguments: RelativeArgument,
         properties: ClientLoginProperties,
     ) -> drax::prelude::Result<()> {
@@ -431,6 +431,15 @@ impl ShovelClient {
             .write_packet(&KeepAlive { id: 0 })
             .await?;
 
+        let mut brand_data = Cursor::new(Vec::new());
+        String::encode(&brand.into(), &mut (), &mut brand_data).await?;
+        self.server_player
+            .write_packet(&CustomPayload {
+                identifier: format!("minecraft:brand"),
+                data: brand_data.into_inner(),
+            })
+            .await?;
+
         let inner = self.current_player_position.inner_loc;
 
         self.server_player
@@ -450,17 +459,6 @@ impl ShovelClient {
                 relative_arguments: arguments,
                 id: self.entity_id,
                 dismount: false,
-            })
-            .await
-    }
-
-    pub async fn emit_brand<S: Into<String>>(&self, brand: S) -> drax::prelude::Result<()> {
-        let mut brand_data = Cursor::new(Vec::new());
-        String::encode(&brand.into(), &mut (), &mut brand_data).await?;
-        self.server_player
-            .write_packet(&CustomPayload {
-                identifier: format!("minecraft:brand"),
-                data: brand_data.into_inner(),
             })
             .await
     }
@@ -582,7 +580,6 @@ impl ShovelClient {
             profile: profile_clone,
             packets: PacketLocker {
                 packet_listener: rx,
-                packet_queue: VecDeque::new(),
                 active: true,
             },
             position: current_player_position,
