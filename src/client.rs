@@ -472,6 +472,7 @@ impl ShovelClient {
         let current_player_position = self.current_player_position;
         let entity_id = self.entity_id;
         let client_count = self.client_count_ref;
+        let connection_information = self.server_player.connection_information.clone();
         tokio::spawn(async move {
             let pending_position = self.pending_position;
             let mut seq = 0;
@@ -581,6 +582,7 @@ impl ShovelClient {
             packets: PacketLocker {
                 packet_listener: rx,
                 active: true,
+                connection_information,
             },
             position: current_player_position,
             pending_position: cloned_pending_position,

@@ -16,6 +16,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::RwLock;
 
 use crate::client::{PendingPosition, StructuredWriterClone};
+use crate::phase::ConnectionInformation;
 
 const CURRENT_CODEC_BYTES: &[u8] = include_bytes!("761.b.nbt");
 // todo we should implement the codec better than this
@@ -53,6 +54,7 @@ pub struct TrackingDetails {
 pub struct PacketLocker {
     pub(crate) packet_listener: UnboundedReceiver<ServerboundPlayRegistry>,
     pub active: bool,
+    pub connection_information: ConnectionInformation,
 }
 
 impl PacketLocker {
