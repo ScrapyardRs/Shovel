@@ -59,7 +59,7 @@ pub struct PacketLocker {
 
 impl PacketLocker {
     pub fn mutate_receiver<
-        F: Fn(
+        F: FnOnce(
             UnboundedReceiver<ServerboundPlayRegistry>,
         ) -> UnboundedReceiver<ServerboundPlayRegistry>,
     >(
@@ -96,7 +96,7 @@ pub struct ConnectedPlayer {
 
 impl ConnectedPlayer {
     pub fn mutate_receiver<
-        F: Fn(
+        F: FnOnce(
             UnboundedReceiver<ServerboundPlayRegistry>,
         ) -> UnboundedReceiver<ServerboundPlayRegistry>,
     >(
