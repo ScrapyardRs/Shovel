@@ -117,17 +117,24 @@ where
 }
 
 pub trait EntityFactory {
-    type Base: CaptureAwaitingEntity;
-    type Entity: CaptureAwaitingEntity;
+    type Base<'a>: CaptureAwaitingEntity
+    where
+        Self: 'a;
+    type Entity<'a>: CaptureAwaitingEntity
+    where
+        Self: 'a;
 
-    fn split_factory_mut(&mut self) -> (&mut Self::Base, &mut Vec<Self::Entity>);
+    #[allow(clippy::needless_lifetimes)]
+    fn split_factory_mut<'a>(
+        &'a mut self,
+    ) -> (&'a mut Self::Base<'a>, &'a mut Vec<Self::Entity<'a>>);
 
     #[allow(clippy::needless_lifetimes)]
     fn tick<'a>(
         &'a mut self,
     ) -> EntityFactoryTick<
-        <Self::Entity as CaptureAwaitingEntity>::AwaitingEntityOutput<'a>,
-        <Self::Base as CaptureAwaitingEntity>::AwaitingEntityOutput<'a>,
+        <Self::Entity<'a> as CaptureAwaitingEntity>::AwaitingEntityOutput<'a>,
+        <Self::Base<'a> as CaptureAwaitingEntity>::AwaitingEntityOutput<'a>,
     > {
         let (base, entities) = self.split_factory_mut();
         tick_factory(base, entities)
