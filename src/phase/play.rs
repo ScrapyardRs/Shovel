@@ -115,6 +115,10 @@ impl ConnectedPlayer {
         self.writer.write_packet(packet).await
     }
 
+    pub fn is_loaded(&self) -> bool {
+        self.tracking.is_loaded_in_world
+    }
+
     pub async fn poll_location(&mut self) -> Option<ClientboundPlayRegistry> {
         let pending_position = self.pending_position.read().await;
         let is_loaded = pending_position.is_loaded.clone();
