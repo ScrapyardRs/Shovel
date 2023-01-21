@@ -57,13 +57,16 @@ where
 
 #[allow(clippy::needless_lifetimes)]
 pub fn tick_entities<'a, T>(
-    entities: &'a mut Vec<T>,
+    entities: Vec<&'a mut T>,
 ) -> AwaitingEntities<T::AwaitingEntityOutput<'a>>
 where
     T: CaptureAwaitingEntity,
 {
     AwaitingEntities {
-        entities: entities.iter_mut().map(|entity| entity.capture()).collect(),
+        entities: entities
+            .into_iter()
+            .map(|entity| entity.capture())
+            .collect(),
     }
 }
 
@@ -105,7 +108,7 @@ where
 #[allow(clippy::needless_lifetimes)]
 pub fn tick_factory<'a, T, E>(
     base: E,
-    entities: &'a mut Vec<T>,
+    entities: Vec<&'a mut T>,
 ) -> EntityFactoryTick<T::AwaitingEntityOutput<'a>, E>
 where
     T: CaptureAwaitingEntity,
@@ -124,7 +127,7 @@ pub trait EntityFactory {
     type Entity: CaptureAwaitingEntity;
 
     #[allow(clippy::needless_lifetimes)]
-    fn split_factory_mut<'a>(&'a mut self) -> (Self::Base<'a>, &'a mut Vec<Self::Entity>);
+    fn split_factory_mut<'a>(&'a mut self) -> (Self::Base<'a>, Vec<&'a mut Self::Entity>);
 
     #[allow(clippy::needless_lifetimes)]
     fn tick<'a>(
