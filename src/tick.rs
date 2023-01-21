@@ -43,8 +43,8 @@ where
         let mut found_packets = false;
         for entity in me.entities.iter_mut() {
             match entity.poll_tick(cx) {
-                Ok(true) => found_packets = true,
-                Ok(false) | Err(()) => {}
+                Ok(true) | Err(()) => found_packets = true,
+                Ok(false) => {}
             }
         }
         if found_packets {
