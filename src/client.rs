@@ -1,4 +1,6 @@
+use std::collections::VecDeque;
 use std::io::Cursor;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -18,10 +20,9 @@ use mcprotocol::common::play::{BlockPos, Location, SimpleLocation};
 use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::RwLock;
 
-use crate::phase::play::ClientLoginProperties;
+use crate::phase::play::{ClientLoginProperties, ConnectedPlayer, PacketLocker, TrackingDetails};
 use crate::phase::ConnectionInformation;
 use crate::server::ServerPlayer;
 
@@ -341,17 +342,53 @@ where
     outsource_write_packet!();
 }
 
+pub struct PendingPosition {
+    pub(crate) location: Location,
+    pub(crate) on_ground: bool,
+    pub(crate) is_loaded: bool,
+}
+
 pub struct ShovelClient {
     pub server_player: ServerPlayer,
+    pub current_player_position: Location,
+    pub pending_position: Arc<RwLock<PendingPosition>>,
+    pub entity_id: i32,
+    pub client_count_ref: Arc<AtomicUsize>,
 }
 
 impl ShovelClient {
+    pub async fn bootstrap_client(
+        compression: Option<i32>,
+        mut player: ServerPlayer,
+        initial_position: Location,
+        player_id: i32,
+        client_count: Arc<AtomicUsize>,
+    ) -> drax::prelude::Result<Self> {
+        if let Some(compression) = compression {
+            player.compress_and_complete_login(compression).await?;
+        } else {
+            player.complete_login().await?;
+        }
+
+        Ok(Self {
+            server_player: player,
+            current_player_position: initial_position.clone(),
+            pending_position: Arc::new(RwLock::new(PendingPosition {
+                location: initial_position,
+                on_ground: false,
+                is_loaded: false,
+            })),
+            entity_id: player_id,
+            client_count_ref: client_count,
+        })
+    }
+
     pub async fn send_client_login(
         &self,
+        arguments: RelativeArgument,
         properties: ClientLoginProperties,
     ) -> drax::prelude::Result<()> {
         let ClientLoginProperties {
-            player_id,
             hardcore,
             game_type,
             previous_game_type,
@@ -367,7 +404,7 @@ impl ShovelClient {
         } = properties;
         self.server_player
             .write_packet(&ClientLogin {
-                player_id,
+                player_id: self.entity_id,
                 hardcore,
                 game_type,
                 previous_game_type,
@@ -390,7 +427,31 @@ impl ShovelClient {
                 last_death_location,
             })
             .await?;
-        self.server_player.write_packet(&KeepAlive { id: 0 }).await
+        self.server_player
+            .write_packet(&KeepAlive { id: 0 })
+            .await?;
+
+        let inner = self.current_player_position.inner_loc;
+
+        self.server_player
+            .write_packet(&SetDefaultSpawnPosition {
+                pos: BlockPos {
+                    x: inner.x as i32,
+                    y: inner.y as i32,
+                    z: inner.z as i32,
+                },
+                angle: 0.0,
+            })
+            .await?;
+
+        self.server_player
+            .write_packet(&PlayerPosition {
+                location: self.current_player_position,
+                relative_arguments: arguments,
+                id: self.entity_id,
+                dismount: false,
+            })
+            .await
     }
 
     pub async fn emit_brand<S: Into<String>>(&self, brand: S) -> drax::prelude::Result<()> {
@@ -404,45 +465,17 @@ impl ShovelClient {
             .await
     }
 
-    pub async fn set_initial_position(
-        &self,
-        x: f64,
-        y: f64,
-        z: f64,
-        yaw: f32,
-        pitch: f32,
-        player_id: i32,
-    ) -> drax::prelude::Result<()> {
-        self.server_player
-            .write_packet(&SetDefaultSpawnPosition {
-                pos: BlockPos {
-                    x: x as i32,
-                    y: y as i32,
-                    z: z as i32,
-                },
-                angle: 0.0,
-            })
-            .await?;
-
-        self.server_player
-            .write_packet(&PlayerPosition {
-                location: Location {
-                    inner_loc: SimpleLocation { x, y, z },
-                    yaw,
-                    pitch,
-                },
-                relative_arguments: RelativeArgument::new(0x8),
-                id: player_id,
-                dismount: false,
-            })
-            .await
-    }
-
-    pub fn keep_alive(mut self) -> (GameProfile, UnboundedReceiver<ServerboundPlayRegistry>) {
+    pub async fn keep_alive(mut self) -> ConnectedPlayer {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let profile_clone = self.server_player.profile.clone();
         let cloned_writer = self.server_player.clone_writer();
+        let passed_cloned_writer = self.server_player.clone_writer();
+        let cloned_pending_position = self.pending_position.clone();
+        let current_player_position = self.current_player_position;
+        let entity_id = self.entity_id;
+        let client_count = self.client_count_ref;
         tokio::spawn(async move {
+            let pending_position = self.pending_position;
             let mut seq = 0;
             loop {
                 let packet = match self
@@ -455,32 +488,114 @@ impl ShovelClient {
                         if !matches!(err.error_type, ErrorType::EOF) {
                             log::error!("Error during client read: {}", err);
                         }
-                        return;
+                        break;
                     }
                 };
-                if let ServerboundPlayRegistry::KeepAlive { keep_alive_id } = &packet {
-                    let cloned_writer = cloned_writer.clone();
-                    if *keep_alive_id == seq {
-                        seq += 1;
-                        tokio::spawn(async move {
-                            tokio::time::sleep(Duration::from_secs(1)).await;
-                            if let Err(err) =
-                                cloned_writer.write_packet(&KeepAlive { id: seq }).await
-                            {
-                                log::error!("Error sending keep alive: {}", err);
-                            };
-                        });
-                        continue;
-                    } else {
-                        return;
+                match &packet {
+                    ServerboundPlayRegistry::KeepAlive { keep_alive_id } => {
+                        let cloned_writer = cloned_writer.clone();
+                        if *keep_alive_id == seq {
+                            seq += 1;
+                            tokio::spawn(async move {
+                                tokio::time::sleep(Duration::from_secs(1)).await;
+                                if let Err(err) =
+                                    cloned_writer.write_packet(&KeepAlive { id: seq }).await
+                                {
+                                    log::error!("Error sending keep alive: {}", err);
+                                };
+                            });
+                            continue;
+                        } else {
+                            break;
+                        }
                     }
-                } else {
-                    if let Err(_) = tx.send(packet) {
-                        return;
-                    };
+                    ServerboundPlayRegistry::MovePlayerPos { x, y, z, on_ground } => {
+                        let mut lock = pending_position.write().await;
+                        lock.location.inner_loc = SimpleLocation {
+                            x: *x,
+                            y: *y,
+                            z: *z,
+                        };
+                        lock.on_ground = *on_ground;
+                        if !lock.is_loaded {
+                            lock.is_loaded = true;
+                        }
+                        drop(lock);
+                    }
+                    ServerboundPlayRegistry::MovePlayerPosRot {
+                        x,
+                        y,
+                        z,
+                        x_rot,
+                        y_rot,
+                        on_ground,
+                    } => {
+                        let mut lock = pending_position.write().await;
+                        lock.location = Location {
+                            inner_loc: SimpleLocation {
+                                x: *x,
+                                y: *y,
+                                z: *z,
+                            },
+                            pitch: *x_rot,
+                            yaw: *y_rot,
+                        };
+                        lock.on_ground = *on_ground;
+                        if !lock.is_loaded {
+                            lock.is_loaded = true;
+                        }
+                        drop(lock);
+                    }
+                    ServerboundPlayRegistry::MovePlayerRot {
+                        x_rot,
+                        y_rot,
+                        on_ground,
+                    } => {
+                        let mut lock = pending_position.write().await;
+                        lock.location.pitch = *x_rot;
+                        lock.location.yaw = *y_rot;
+                        lock.on_ground = *on_ground;
+                        if !lock.is_loaded {
+                            lock.is_loaded = true;
+                        }
+                        drop(lock);
+                    }
+                    ServerboundPlayRegistry::MovePlayerStatusOnly { status } => {
+                        let mut lock = pending_position.write().await;
+                        lock.on_ground = *status != 0;
+                        if !lock.is_loaded {
+                            lock.is_loaded = true;
+                        }
+                        drop(lock);
+                    }
+                    _ => {
+                        if let Err(_) = tx.send(packet) {
+                            break;
+                        };
+                    }
                 }
             }
+            client_count.fetch_sub(1, Ordering::SeqCst);
         });
-        (profile_clone, rx)
+        ConnectedPlayer {
+            writer: passed_cloned_writer,
+            profile: profile_clone,
+            packets: PacketLocker {
+                packet_listener: rx,
+                packet_queue: VecDeque::new(),
+                active: true,
+            },
+            position: current_player_position,
+            pending_position: cloned_pending_position,
+            entity_id,
+            tracking: TrackingDetails::default(),
+        }
+    }
+
+    pub async fn write_packet<P: PacketComponent<(), ComponentType = P> + Send + Sync>(
+        &self,
+        packet: &P,
+    ) -> drax::prelude::Result<()> {
+        self.server_player.write_packet(packet).await
     }
 }

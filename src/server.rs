@@ -1,9 +1,10 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use drax::prelude::ErrorType;
 use drax::{throw_explain, PinnedLivelyResult, PinnedResult};
 use mcprotocol::clientbound::status::StatusResponse;
+use mcprotocol::common::play::{Location, SimpleLocation};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
 
@@ -34,7 +35,10 @@ pub struct MinecraftServer<F> {
     key: Arc<MCPrivateKey>,
     status_builder: Option<Arc<F>>,
     client_count: Arc<AtomicUsize>,
+    entity_count_locker: Arc<AtomicI32>,
     bind: String,
+    initial_location: Location,
+    compression_threshold: Option<i32>,
 }
 
 impl MinecraftServer<()> {
@@ -43,19 +47,36 @@ impl MinecraftServer<()> {
             key: Arc::new(crate::crypto::new_key().expect("Failed to generate new server key.")),
             status_builder: None,
             client_count: Arc::new(AtomicUsize::new(0)),
+            entity_count_locker: Arc::new(AtomicI32::new(0)),
             bind: "0.0.0.0:25565".to_string(),
+            initial_location: Location {
+                inner_loc: SimpleLocation {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                yaw: 0.0,
+                pitch: 0.0,
+            },
+            compression_threshold: None,
         }
     }
 }
 
 impl<F> MinecraftServer<F> {
-    pub fn bind(self, bind_str: String) -> MinecraftServer<F> {
-        MinecraftServer {
-            key: self.key,
-            bind: bind_str,
-            client_count: self.client_count,
-            status_builder: self.status_builder,
-        }
+    pub fn initial_location(mut self, loc: Location) -> Self {
+        self.initial_location = loc;
+        self
+    }
+
+    pub fn compression_threshold(mut self, threshold: Option<i32>) -> Self {
+        self.compression_threshold = threshold;
+        self
+    }
+
+    pub fn bind(mut self, bind_str: String) -> Self {
+        self.bind = bind_str;
+        self
     }
 
     pub fn build_status<FN>(self, builder: FN) -> MinecraftServer<FN>
@@ -67,6 +88,9 @@ impl<F> MinecraftServer<F> {
             status_builder: Some(Arc::new(builder)),
             client_count: self.client_count,
             bind: self.bind,
+            entity_count_locker: self.entity_count_locker,
+            initial_location: self.initial_location,
+            compression_threshold: self.compression_threshold,
         }
     }
 
@@ -82,6 +106,9 @@ impl<F> MinecraftServer<F> {
             })),
             client_count: self.client_count,
             bind: self.bind,
+            entity_count_locker: self.entity_count_locker,
+            initial_location: self.initial_location,
+            compression_threshold: self.compression_threshold,
         }
     }
 }
@@ -99,7 +126,10 @@ where
             key,
             status_builder,
             client_count,
+            entity_count_locker,
             bind,
+            initial_location,
+            compression_threshold,
         } = self;
 
         let listener = TcpListener::bind(bind).await?;
@@ -114,6 +144,7 @@ where
                 .map(Ok)
                 .unwrap_or_else(|| throw_explain!("No status builder provided."))?;
             let client_context = client_context.clone();
+            let entity_count_locker = entity_count_locker.clone();
 
             tokio::spawn(async move {
                 let (read, write) = stream.into_split();
@@ -122,26 +153,27 @@ where
                         let client_name = client.profile.name.clone();
                         // new player added
                         client_count.fetch_add(1, Ordering::SeqCst);
-                        match (client_acceptor)(
-                            client_context,
-                            ShovelClient {
-                                server_player: client,
-                            },
+                        if let Ok(client) = ShovelClient::bootstrap_client(
+                            compression_threshold,
+                            client,
+                            initial_location.clone(),
+                            entity_count_locker.fetch_add(1, Ordering::SeqCst),
+                            client_count,
                         )
                         .await
                         {
-                            Ok(_) => {
-                                log::info!("Client {} disconnected naturally.", client_name);
-                            }
-                            Err(err) if matches!(err.error_type, ErrorType::EOF) => {
-                                log::info!("Client {} disconnected with EOF.", client_name);
-                            }
-                            Err(err) => {
-                                log::error!("Transport error in client acceptor: {}", err);
+                            match (client_acceptor)(client_context, client).await {
+                                Ok(_) => {
+                                    log::info!("Client {} disconnected naturally.", client_name);
+                                }
+                                Err(err) if matches!(err.error_type, ErrorType::EOF) => {
+                                    log::info!("Client {} disconnected with EOF.", client_name);
+                                }
+                                Err(err) => {
+                                    log::error!("Transport error in client acceptor: {}", err);
+                                }
                             }
                         }
-                        // remove new player
-                        client_count.fetch_sub(1, Ordering::SeqCst);
                     }
                     Ok(None) => {}
                     Err(e) => {
@@ -207,6 +239,8 @@ macro_rules! spawn_server {
         $(@bind $bind:expr,)?
         $(@status $status_builder:expr,)?
         $(@mc_status $mc_status_builder:expr,)?
+        $(@compress $threshold:expr,)?
+        $(@initial_location $initial_location:expr,)?
         $client_context_ident:ident, $client_ident:ident -> {$($client_acceptor_tokens:tt)*}
     ) => {
         $crate::server::MinecraftServer::new()

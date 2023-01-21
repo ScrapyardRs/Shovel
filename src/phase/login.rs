@@ -141,19 +141,6 @@ where
     loop {
         match read.read_packet::<ServerBoundLoginRegsitry>(None).await? {
             ServerBoundLoginRegsitry::Hello { name, profile_id } => {
-                // let client = MCClient::new(
-                //     DecryptRead::noop(read),
-                //     EncryptedWriter::noop(write),
-                //     connection_info,
-                //     name.clone(),
-                //     GameProfile {
-                //         id: uuid::Uuid::new_v3(&Uuid::new_v4(), "Minecraft".as_bytes()),
-                //         name,
-                //         properties: vec![],
-                //     },
-                // );
-                //
-                // return Ok(client);
                 if let LoginState::ExpectingHello = state {
                     let key_der = private_key_to_der(&key);
                     let mut verify_token = [0, 0, 0, 0];

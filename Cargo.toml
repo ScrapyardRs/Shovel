@@ -26,4 +26,5 @@ hyper = { version = "0.14.23", features = ["nightly", "client", "http1"] }
 hyper-rustls = "0.23.2"
 openssl = "0.10.45"
 uuid = { version = "1.2.2", features = ["v3", "v4"] }
+pin-project-lite = "0.2.9"
 
