@@ -90,7 +90,7 @@ pub struct ConnectedPlayer {
     pub packets: PacketLocker,
     pub position: Location,
     pub(crate) pending_position: Arc<RwLock<PendingPosition>>,
-    pub(crate) entity_id: i32,
+    pub entity_id: i32,
     pub(crate) tracking: TrackingDetails,
 }
 
