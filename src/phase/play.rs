@@ -177,7 +177,7 @@ impl ConnectedPlayer {
                         on_ground,
                     })
                 } else {
-                    unreachable!()
+                    None
                 }
             } else {
                 Some(MoveEntityPosRot {
