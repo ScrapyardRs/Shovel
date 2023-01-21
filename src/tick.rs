@@ -102,33 +102,36 @@ where
     }
 }
 
+#[allow(clippy::needless_lifetimes)]
 pub fn tick_factory<'a, T, E>(
-    base: &'a mut E,
+    base: E,
     entities: &'a mut Vec<T>,
-) -> EntityFactoryTick<T::AwaitingEntityOutput<'a>, E::AwaitingEntityOutput<'a>>
+) -> EntityFactoryTick<T::AwaitingEntityOutput<'a>, E>
 where
     T: CaptureAwaitingEntity,
-    E: CaptureAwaitingEntity,
+    E: AwaitingEntity,
 {
     EntityFactoryTick {
-        base: base.capture(),
+        base,
         entities: tick_entities(entities),
     }
 }
 
 pub trait EntityFactory {
-    type Base: CaptureAwaitingEntity;
+    type Base<'a>: AwaitingEntity
+    where
+        Self: 'a;
     type Entity: CaptureAwaitingEntity;
 
     #[allow(clippy::needless_lifetimes)]
-    fn split_factory_mut<'a>(&'a mut self) -> (&'a mut Self::Base, &'a mut Vec<Self::Entity>);
+    fn split_factory_mut<'a>(&'a mut self) -> (Self::Base<'a>, &'a mut Vec<Self::Entity>);
 
     #[allow(clippy::needless_lifetimes)]
     fn tick<'a>(
         &'a mut self,
     ) -> EntityFactoryTick<
         <Self::Entity as CaptureAwaitingEntity>::AwaitingEntityOutput<'a>,
-        <Self::Base as CaptureAwaitingEntity>::AwaitingEntityOutput<'a>,
+        Self::Base<'a>,
     > {
         let (base, entities) = self.split_factory_mut();
         tick_factory(base, entities)
