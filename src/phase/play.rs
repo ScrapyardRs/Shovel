@@ -155,7 +155,7 @@ impl ConnectedPlayer {
 
         let change_flag_1 =
             ((delta_x * delta_x) + (delta_y * delta_y) + (delta_z * delta_z)) >= 7.62939453125E-6;
-        let change_flag_2 = change_flag_1 || self.tracking.tick % 60 == 0;
+        let change_flag_2 = change_flag_1 || self.tracking.tick % 20 == 0;
         let change_flag_3 = i32::abs(y_rot_bits - self.tracking.rot.0) >= 1
             || i32::abs(x_rot_bits - self.tracking.rot.1) >= 1;
 
