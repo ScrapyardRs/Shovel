@@ -518,7 +518,6 @@ impl ShovelClient {
                                 pending_position.location = pending_teleport.0;
                             }
                         }
-                        break;
                     }
                     ServerboundPlayRegistry::MovePlayerPos { x, y, z, on_ground } => {
                         let mut lock = pending_position.write().await;
@@ -534,7 +533,6 @@ impl ShovelClient {
                         if !lock.is_loaded {
                             lock.is_loaded = true;
                         }
-                        drop(lock);
                     }
                     ServerboundPlayRegistry::MovePlayerPosRot {
                         x,
@@ -561,7 +559,6 @@ impl ShovelClient {
                         if !lock.is_loaded {
                             lock.is_loaded = true;
                         }
-                        drop(lock);
                     }
                     ServerboundPlayRegistry::MovePlayerRot {
                         x_rot,
@@ -578,7 +575,6 @@ impl ShovelClient {
                         if !lock.is_loaded {
                             lock.is_loaded = true;
                         }
-                        drop(lock);
                     }
                     ServerboundPlayRegistry::MovePlayerStatusOnly { status } => {
                         let mut lock = pending_position.write().await;
@@ -589,7 +585,6 @@ impl ShovelClient {
                         if !lock.is_loaded {
                             lock.is_loaded = true;
                         }
-                        drop(lock);
                     }
                     _ => {
                         if let Err(_) = tx.send(packet) {
