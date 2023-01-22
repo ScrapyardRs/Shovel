@@ -452,14 +452,15 @@ impl ShovelClient {
             })
             .await?;
 
-        self.server_player
-            .write_packet(&PlayerPosition {
-                location: self.current_player_position,
-                relative_arguments: arguments,
-                id: self.entity_id,
-                dismount: false,
-            })
-            .await
+        let position_packet = PlayerPosition {
+            location: self.current_player_position,
+            relative_arguments: arguments,
+            id: self.entity_id,
+            dismount: false,
+        };
+        log::info!("Player position packet sending: {:#?}", &position_packet);
+
+        self.server_player.write_packet(&position_packet).await
     }
 
     pub fn keep_alive(mut self) -> ConnectedPlayer {
