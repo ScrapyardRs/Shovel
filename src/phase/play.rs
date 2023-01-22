@@ -129,6 +129,7 @@ impl ConnectedPlayer {
         let mut pending_location = pending_position.location.clone();
         let on_ground = pending_position.on_ground.clone();
         drop(pending_position);
+        let send_everything = !self.tracking.is_loaded_in_world;
         if !self.tracking.is_loaded_in_world {
             self.tracking.is_loaded_in_world = true;
         }
@@ -162,7 +163,7 @@ impl ConnectedPlayer {
         let mut to_send = Vec::with_capacity(2);
 
         if !flag4 && self.tracking.was_on_ground == on_ground {
-            if !change_flag_2 || !change_flag_3 {
+            if !change_flag_2 || !change_flag_3 || send_everything {
                 if change_flag_2 {
                     to_send.push(MoveEntityPos {
                         id: self.entity_id,
@@ -205,7 +206,7 @@ impl ConnectedPlayer {
             });
         }
 
-        if i32::abs(y_rot_bits - self.tracking.rot.2) >= 1 {
+        if i32::abs(y_rot_bits - self.tracking.rot.2) >= 1 || send_everything {
             to_send.push(ClientboundPlayRegistry::RotateHead {
                 entity_id: self.entity_id,
                 y_head_rot: y_rot_bits as u8,
@@ -213,7 +214,7 @@ impl ConnectedPlayer {
             self.tracking.rot.2 = y_rot_bits;
         }
 
-        if change_flag_3 {
+        if change_flag_3 || send_everything {
             self.tracking.rot.0 = y_rot_bits;
             self.tracking.rot.1 = x_rot_bits;
         }
