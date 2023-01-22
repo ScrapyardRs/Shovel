@@ -342,6 +342,7 @@ where
 
 pub struct PendingPosition {
     pub(crate) location: Location,
+    pub(crate) pending_teleport: Option<(Location, i32)>,
     pub(crate) on_ground: bool,
     pub(crate) is_loaded: bool,
 }
@@ -372,7 +373,8 @@ impl ShovelClient {
             server_player: player,
             current_player_position: initial_position.clone(),
             pending_position: Arc::new(RwLock::new(PendingPosition {
-                location: initial_position,
+                location: initial_position.clone(),
+                pending_teleport: Some((initial_position.clone(), 0)),
                 on_ground: false,
                 is_loaded: false,
             })),
@@ -507,8 +509,22 @@ impl ShovelClient {
                             break;
                         }
                     }
+                    ServerboundPlayRegistry::AcceptTeleportation { teleportation_id } => {
+                        let mut pending_position = pending_position.write().await;
+                        if let Some(pending_teleport) = pending_position.pending_teleport.take() {
+                            if pending_teleport.1 != *teleportation_id {
+                                pending_position.pending_teleport = Some(pending_teleport);
+                            } else {
+                                pending_position.location = pending_teleport.0;
+                            }
+                        }
+                        break;
+                    }
                     ServerboundPlayRegistry::MovePlayerPos { x, y, z, on_ground } => {
                         let mut lock = pending_position.write().await;
+                        if lock.pending_teleport.is_some() {
+                            continue;
+                        }
                         lock.location.inner_loc = SimpleLocation {
                             x: *x,
                             y: *y,
@@ -529,6 +545,9 @@ impl ShovelClient {
                         on_ground,
                     } => {
                         let mut lock = pending_position.write().await;
+                        if lock.pending_teleport.is_some() {
+                            continue;
+                        }
                         lock.location = Location {
                             inner_loc: SimpleLocation {
                                 x: *x,
@@ -550,6 +569,9 @@ impl ShovelClient {
                         on_ground,
                     } => {
                         let mut lock = pending_position.write().await;
+                        if lock.pending_teleport.is_some() {
+                            continue;
+                        }
                         lock.location.yaw = *y_rot;
                         lock.location.pitch = *x_rot;
                         lock.on_ground = *on_ground;
@@ -560,6 +582,9 @@ impl ShovelClient {
                     }
                     ServerboundPlayRegistry::MovePlayerStatusOnly { status } => {
                         let mut lock = pending_position.write().await;
+                        if lock.pending_teleport.is_some() {
+                            continue;
+                        }
                         lock.on_ground = *status != 0;
                         if !lock.is_loaded {
                             lock.is_loaded = true;
