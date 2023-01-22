@@ -223,4 +223,9 @@ impl ConnectedPlayer {
         self.position = pending_location;
         to_send
     }
+
+    #[inline]
+    pub fn clone_writer(&self) -> StructuredWriterClone<OwnedWriteHalf> {
+        self.writer.clone()
+    }
 }
