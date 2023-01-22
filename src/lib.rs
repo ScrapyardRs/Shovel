@@ -8,7 +8,7 @@ pub mod crypto;
 pub mod phase;
 pub mod server;
 pub mod tick;
-pub(crate) mod math;
+pub mod math;
 
 pub mod version_constants {
     pub const CURRENT_PROTOCOL_VERSION: i32 = 761;
