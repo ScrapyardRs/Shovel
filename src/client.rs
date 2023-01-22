@@ -1,5 +1,5 @@
 use std::io::Cursor;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -612,6 +612,7 @@ impl ShovelClient {
             pending_position: cloned_pending_position,
             entity_id,
             tracking: TrackingDetails::default(),
+            teleport_id_incr: AtomicI32::new(1),
         }
     }
 

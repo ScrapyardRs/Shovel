@@ -1,12 +1,13 @@
 use std::io::Cursor;
+use std::sync::atomic::AtomicI32;
 use std::sync::Arc;
 
 use drax::nbt::{EnsuredCompoundTag, Tag};
 use drax::prelude::PacketComponent;
-use mcprotocol::clientbound::play::ClientboundPlayRegistry;
 use mcprotocol::clientbound::play::ClientboundPlayRegistry::{
     MoveEntityPos, MoveEntityPosRot, MoveEntityRot, TeleportEntity,
 };
+use mcprotocol::clientbound::play::{ClientboundPlayRegistry, RelativeArgument};
 use mcprotocol::common::play::{GlobalPos, Location, SimpleLocation};
 use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
@@ -92,9 +93,25 @@ pub struct ConnectedPlayer {
     pub(crate) pending_position: Arc<RwLock<PendingPosition>>,
     pub entity_id: i32,
     pub(crate) tracking: TrackingDetails,
+    pub(crate) teleport_id_incr: AtomicI32,
 }
 
 impl ConnectedPlayer {
+    pub async fn teleport(&mut self, location: Location) -> drax::prelude::Result<()> {
+        let teleport_id = self
+            .teleport_id_incr
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let mut pending = self.pending_position.write().await;
+        pending.pending_teleport = Some((location.clone(), teleport_id));
+        self.write_packet(&ClientboundPlayRegistry::PlayerPosition {
+            location,
+            relative_arguments: RelativeArgument::new(0x0),
+            id: teleport_id,
+            dismount: false,
+        })
+        .await
+    }
+
     pub fn mutate_receiver<
         F: FnOnce(
             UnboundedReceiver<ServerboundPlayRegistry>,
