@@ -162,8 +162,8 @@ impl ConnectedPlayer {
 
         let mut to_send = Vec::with_capacity(2);
 
-        if !flag4 && self.tracking.was_on_ground == on_ground {
-            if !change_flag_2 || !change_flag_3 || send_everything {
+        if !flag4 && self.tracking.was_on_ground == on_ground && !send_everything {
+            if !change_flag_2 || !change_flag_3 {
                 if change_flag_2 {
                     to_send.push(MoveEntityPos {
                         id: self.entity_id,
