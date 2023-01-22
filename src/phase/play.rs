@@ -129,7 +129,7 @@ impl ConnectedPlayer {
         let mut pending_location = pending_position.location.clone();
         let on_ground = pending_position.on_ground.clone();
         drop(pending_position);
-        let send_everything = !self.tracking.is_loaded_in_world;
+        let send_everything = !self.tracking.is_loaded_in_world || self.tracking.tick == 10;
         if !self.tracking.is_loaded_in_world {
             self.tracking.is_loaded_in_world = true;
         }
