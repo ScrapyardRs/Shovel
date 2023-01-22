@@ -47,7 +47,7 @@ pub struct ClientLoginProperties {
 pub struct TrackingDetails {
     pub(crate) is_loaded_in_world: bool,
     pub(crate) tick: usize,
-    pub(crate) rot: (i32, i32),
+    pub(crate) rot: (i32, i32, i32),
     pub(crate) was_on_ground: bool,
 }
 
@@ -119,12 +119,12 @@ impl ConnectedPlayer {
         self.tracking.is_loaded_in_world
     }
 
-    pub async fn poll_location(&mut self) -> Option<ClientboundPlayRegistry> {
+    pub async fn poll_location(&mut self) -> Vec<ClientboundPlayRegistry> {
         let pending_position = self.pending_position.read().await;
         let is_loaded = pending_position.is_loaded.clone();
         if !is_loaded {
             drop(pending_position);
-            return None;
+            return vec![];
         }
         let mut pending_location = pending_position.location.clone();
         let on_ground = pending_position.on_ground.clone();
@@ -139,8 +139,8 @@ impl ConnectedPlayer {
         pending_location.yaw = crate::math::wrap_degrees(pending_location.yaw);
         pending_location.pitch = crate::math::wrap_degrees(pending_location.pitch);
 
-        let x_rot_bits = f32::floor((pending_location.yaw * 256.0) / 360.0) as i32;
-        let y_rot_bits = f32::floor((pending_location.pitch * 256.0) / 360.0) as i32;
+        let y_rot_bits = f32::floor((pending_location.yaw * 256.0) / 360.0) as i32;
+        let x_rot_bits = f32::floor((pending_location.pitch * 256.0) / 360.0) as i32;
 
         let delta_x = self.position.inner_loc.x - pending_location.inner_loc.x;
         let delta_y = self.position.inner_loc.y - pending_location.inner_loc.y;
@@ -159,28 +159,28 @@ impl ConnectedPlayer {
         let change_flag_3 = i32::abs(y_rot_bits - self.tracking.rot.0) >= 1
             || i32::abs(x_rot_bits - self.tracking.rot.1) >= 1;
 
-        let to_send = if !flag4 && self.tracking.was_on_ground == on_ground {
+        let mut to_send = Vec::with_capacity(2);
+
+        if !flag4 && self.tracking.was_on_ground == on_ground {
             if !change_flag_2 || !change_flag_3 {
                 if change_flag_2 {
-                    Some(MoveEntityPos {
+                    to_send.push(MoveEntityPos {
                         id: self.entity_id,
                         xa: ex as i16,
                         ya: ey as i16,
                         za: ez as i16,
                         on_ground,
-                    })
+                    });
                 } else if change_flag_3 {
-                    Some(MoveEntityRot {
+                    to_send.push(MoveEntityRot {
                         entity_id: self.entity_id,
                         y_rot: y_rot_bits as u8,
                         x_rot: x_rot_bits as u8,
                         on_ground,
-                    })
-                } else {
-                    None
+                    });
                 }
             } else {
-                Some(MoveEntityPosRot {
+                to_send.push(MoveEntityPosRot {
                     id: self.entity_id,
                     xa: ex as i16,
                     ya: ey as i16,
@@ -188,11 +188,11 @@ impl ConnectedPlayer {
                     y_rot: y_rot_bits as u8,
                     x_rot: x_rot_bits as u8,
                     on_ground,
-                })
+                });
             }
         } else {
             self.tracking.was_on_ground = on_ground;
-            Some(TeleportEntity {
+            to_send.push(TeleportEntity {
                 entity_id: self.entity_id,
                 location: SimpleLocation {
                     x: pending_location.inner_loc.x,
@@ -202,11 +202,20 @@ impl ConnectedPlayer {
                 y_rot: y_rot_bits as u8,
                 x_rot: x_rot_bits as u8,
                 on_ground,
-            })
-        };
+            });
+        }
+
+        if i32::abs(y_rot_bits - self.tracking.rot.2) >= 1 {
+            to_send.push(ClientboundPlayRegistry::RotateHead {
+                entity_id: self.entity_id,
+                y_head_rot: y_rot_bits as u8,
+            });
+            self.tracking.rot.2 = y_rot_bits;
+        }
 
         if change_flag_3 {
-            self.tracking.rot = (y_rot_bits, x_rot_bits);
+            self.tracking.rot.0 = y_rot_bits;
+            self.tracking.rot.1 = x_rot_bits;
         }
 
         self.tracking.tick += 1;
