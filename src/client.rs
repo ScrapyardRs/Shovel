@@ -458,7 +458,6 @@ impl ShovelClient {
             id: self.entity_id,
             dismount: false,
         };
-        log::info!("Player position packet sending: {:#?}", &position_packet);
 
         self.server_player.write_packet(&position_packet).await
     }
