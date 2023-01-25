@@ -316,7 +316,7 @@ impl EntityTracker {
                     broadcasts.push(ConditionalPacket::Conditional(
                         create_entity_packet,
                         Box::new(move |e| {
-                            e.entity_id_ref == id
+                            e.entity_id_ref != id
                                 && matches!(e.state, TrackingState::WaitingForPlayers { .. })
                         }),
                     ));
@@ -324,7 +324,7 @@ impl EntityTracker {
                         ConditionalPacket::<EntityPositionTracker>::Conditional(
                             x,
                             Box::new(move |e| {
-                                e.entity_id_ref == id
+                                e.entity_id_ref != id
                                     && matches!(e.state, TrackingState::Active { .. })
                             }),
                         )

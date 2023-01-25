@@ -18,7 +18,6 @@ use mcprotocol::common::play::{BlockPos, Location, SimpleLocation};
 use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::join;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
