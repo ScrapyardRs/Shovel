@@ -238,6 +238,10 @@ impl EntityTracker {
         }
     }
 
+    pub fn contains(&self, entity_id: &Uuid) -> bool {
+        self.entities.contains_key(entity_id)
+    }
+
     pub fn add_entity<T: TrackableEntity>(&mut self, entity: &T) {
         let uuid = T::uuid(entity);
         self.entities.insert(
