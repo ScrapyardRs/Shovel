@@ -1,27 +1,29 @@
 use std::io::Cursor;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-use drax::{PinnedLivelyResult, throw_explain};
 use drax::prelude::{DraxReadExt, DraxWriteExt, ErrorType, PacketComponent, Size};
 use drax::transport::buffer::var_num::size_var_int;
 use drax::transport::encryption::{Cipher, NewCipher};
+use drax::{throw_explain, PinnedLivelyResult};
 use mcprotocol::clientbound::login::ClientboundLoginRegistry::{
     LoginCompression, LoginGameProfile,
 };
-use mcprotocol::clientbound::play::{ClientboundPlayRegistry, RelativeArgument};
 use mcprotocol::clientbound::play::ClientboundPlayRegistry::{
     ClientLogin, CustomPayload, KeepAlive, PlayerPosition, SetDefaultSpawnPosition,
 };
-use mcprotocol::common::GameProfile;
+use mcprotocol::clientbound::play::{ClientboundPlayRegistry, RelativeArgument};
 use mcprotocol::common::play::{BlockPos, Location, SimpleLocation};
+use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use tokio::join;
 use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 
-use crate::phase::ConnectionInformation;
 use crate::phase::play::{ClientLoginProperties, ConnectedPlayer, PacketLocker};
+use crate::phase::ConnectionInformation;
 use crate::server::RawConnection;
 
 pub struct WrappedPacketWriter<W> {
@@ -100,7 +102,7 @@ impl<A: AsyncRead + Unpin + Send + Sync + Sized> McPacketReader for A {
             } else {
                 buffer.into_inner()
             });
-            
+
             P::decode(&mut (), &mut buffer).await
         })
     }
@@ -390,7 +392,7 @@ impl ProcessedPlayer {
             .await
     }
 
-    pub async fn keep_alive(self) -> ConnectedPlayer {
+    pub async fn keep_alive(self) -> (ConnectedPlayer, JoinHandle<()>, JoinHandle<()>) {
         // read thread
         let client_count = self.client_count_ref;
         let (packet_writer_tx, mut packet_writer_rx) = tokio::sync::mpsc::unbounded_channel();
@@ -423,7 +425,7 @@ impl ProcessedPlayer {
             known_chunks: Default::default(),
         };
 
-        tokio::spawn(async move {
+        let read_join_handle = tokio::spawn(async move {
             let pending_position = self.pending_position;
             let mut seq = 0;
             loop {
@@ -550,7 +552,7 @@ impl ProcessedPlayer {
         });
 
         // write thread
-        tokio::spawn(async move {
+        let write_join_handle = tokio::spawn(async move {
             while let Some(packet) = packet_writer_rx.recv().await {
                 if writer.write_play_packet(&packet).await.is_err() {
                     break;
@@ -558,7 +560,7 @@ impl ProcessedPlayer {
             }
         });
 
-        connected_player
+        (connected_player, read_join_handle, write_join_handle)
     }
 }
 
