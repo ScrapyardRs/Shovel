@@ -412,7 +412,7 @@ impl ProcessedPlayer {
             packets: PacketLocker {
                 send: packet_writer_tx.clone(),
                 packet_listener: rx,
-                active: false,
+                active: true,
                 connection_information,
             },
             entity_id: self.entity_id,
