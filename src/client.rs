@@ -422,6 +422,7 @@ impl ProcessedPlayer {
             pending_position: self.pending_position.clone(),
             teleport_id_incr: AtomicI32::new(0),
             known_chunks: Default::default(),
+            player_inventory: Default::default(),
         };
 
         let read_join_handle = tokio::spawn(async move {

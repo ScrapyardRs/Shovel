@@ -5,7 +5,9 @@ use std::sync::Arc;
 
 use drax::nbt::{EnsuredCompoundTag, Tag};
 use drax::prelude::PacketComponent;
+use mcprotocol::clientbound::play::ClientboundPlayRegistry::Disconnect;
 use mcprotocol::clientbound::play::{ClientboundPlayRegistry, LevelChunkData, RelativeArgument};
+use mcprotocol::common::chat::Chat;
 use mcprotocol::common::chunk::Chunk;
 use mcprotocol::common::play::{GlobalPos, Location};
 use mcprotocol::common::GameProfile;
@@ -17,6 +19,7 @@ use uuid::Uuid;
 
 use crate::client::PendingPosition;
 use crate::entity::tracking::{EntityPositionTracker, TrackableEntity};
+use crate::inventory::PlayerInventory;
 use crate::level::PlayerLevel;
 use crate::phase::ConnectionInformation;
 use crate::{empty_light_data, PacketSend};
@@ -117,6 +120,8 @@ pub struct ConnectedPlayer {
     pub(crate) teleport_id_incr: AtomicI32,
     // level information
     pub(crate) known_chunks: HashSet<(i32, i32)>,
+    // inventory
+    pub(crate) player_inventory: PlayerInventory,
 }
 
 impl TrackableEntity for ConnectedPlayer {
@@ -148,12 +153,27 @@ impl TrackableEntity for ConnectedPlayer {
 }
 
 impl ConnectedPlayer {
+    pub fn disconnect<C: Into<Chat>>(&mut self, chat: C) {
+        self.packets.write_owned_packet(Disconnect {
+            reason: chat.into(),
+        });
+        self.packets.active = false;
+    }
+
     pub fn username(&self) -> &String {
         &self.profile.name
     }
 
     pub fn profile(&self) -> &GameProfile {
         &self.profile
+    }
+
+    pub fn player_inventory(&self) -> &PlayerInventory {
+        &self.player_inventory
+    }
+
+    pub fn player_inventory_mut(&mut self) -> &mut PlayerInventory {
+        &mut self.player_inventory
     }
 
     pub fn next_packet(&mut self) -> Option<ServerboundPlayRegistry> {
