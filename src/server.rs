@@ -8,7 +8,7 @@ use mcprotocol::common::play::{Location, SimpleLocation};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpListener;
 
-use crate::client::{MCClient, ShovelClient};
+use crate::client::{MCConnection, ProcessedPlayer};
 use crate::crypto::MCPrivateKey;
 use crate::phase::process_handshake;
 use crate::phase::status::StatusBuilder;
@@ -20,18 +20,18 @@ pub struct StatusBuilderWrapper<B> {
 
 impl<B> StatusBuilder for StatusBuilderWrapper<B>
 where
-    B: MinecraftServerStatusBuilder,
+    B: MCServerStatusBuilder,
 {
     fn build(&self) -> PinnedLivelyResult<StatusResponse> {
         self.builder.build_status(self.count.load(Ordering::SeqCst))
     }
 }
 
-pub trait MinecraftServerStatusBuilder {
+pub trait MCServerStatusBuilder {
     fn build_status(&self, client_count: usize) -> PinnedLivelyResult<StatusResponse>;
 }
 
-pub struct MinecraftServer<F> {
+pub struct MCServer<F> {
     key: Arc<MCPrivateKey>,
     status_builder: Option<Arc<F>>,
     client_count: Arc<AtomicUsize>,
@@ -41,8 +41,8 @@ pub struct MinecraftServer<F> {
     compression_threshold: Option<i32>,
 }
 
-impl MinecraftServer<()> {
-    pub fn new() -> MinecraftServer<()> {
+impl MCServer<()> {
+    pub fn new() -> MCServer<()> {
         Self {
             key: Arc::new(crate::crypto::new_key().expect("Failed to generate new server key.")),
             status_builder: None,
@@ -63,7 +63,7 @@ impl MinecraftServer<()> {
     }
 }
 
-impl<F> MinecraftServer<F> {
+impl<F> MCServer<F> {
     pub fn initial_location(mut self, loc: Location) -> Self {
         self.initial_location = loc;
         self
@@ -79,11 +79,11 @@ impl<F> MinecraftServer<F> {
         self
     }
 
-    pub fn build_status<FN>(self, builder: FN) -> MinecraftServer<FN>
+    pub fn build_status<FN>(self, builder: FN) -> MCServer<FN>
     where
         FN: StatusBuilder,
     {
-        MinecraftServer {
+        MCServer {
             key: self.key,
             status_builder: Some(Arc::new(builder)),
             client_count: self.client_count,
@@ -94,11 +94,11 @@ impl<F> MinecraftServer<F> {
         }
     }
 
-    pub fn build_mc_status<FN>(self, builder: FN) -> MinecraftServer<StatusBuilderWrapper<FN>>
+    pub fn build_mc_status<FN>(self, builder: FN) -> MCServer<StatusBuilderWrapper<FN>>
     where
-        FN: MinecraftServerStatusBuilder,
+        FN: MCServerStatusBuilder,
     {
-        MinecraftServer {
+        MCServer {
             key: self.key,
             status_builder: Some(Arc::new(StatusBuilderWrapper {
                 count: self.client_count.clone(),
@@ -113,16 +113,16 @@ impl<F> MinecraftServer<F> {
     }
 }
 
-impl<F> MinecraftServer<F>
+impl<F> MCServer<F>
 where
     F: StatusBuilder + Send + Sync + 'static,
 {
     pub async fn spawn<C: Clone + Send + Sync + 'static>(
         self,
         client_context: C,
-        client_acceptor: fn(C, ShovelClient) -> PinnedResult<()>,
+        client_acceptor: fn(C, ProcessedPlayer) -> PinnedResult<()>,
     ) -> drax::prelude::Result<()> {
-        let MinecraftServer {
+        let MCServer {
             key,
             status_builder,
             client_count,
@@ -153,7 +153,7 @@ where
                         let client_name = client.profile.name.clone();
                         // new player added
                         client_count.fetch_add(1, Ordering::SeqCst);
-                        if let Ok(client) = ShovelClient::bootstrap_client(
+                        if let Ok(client) = ProcessedPlayer::bootstrap_client(
                             compression_threshold,
                             client,
                             initial_location.clone(),
@@ -187,13 +187,13 @@ where
     }
 }
 
-impl Default for MinecraftServer<()> {
+impl Default for MCServer<()> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-pub type ServerPlayer = MCClient<OwnedReadHalf, OwnedWriteHalf>;
+pub type RawConnection = MCConnection<OwnedReadHalf, OwnedWriteHalf>;
 
 #[macro_export]
 macro_rules! __internal_status_flip {
@@ -243,7 +243,7 @@ macro_rules! spawn_server {
         $(@initial_location $initial_location:expr,)?
         $client_context_ident:ident, $client_ident:ident -> {$($client_acceptor_tokens:tt)*}
     ) => {
-        $crate::server::MinecraftServer::new()
+        $crate::server::MCServer::new()
             $(.bind($bind.to_string()))?
             $(.build_status($status_builder))?
             $(.build_mc_status($mc_status_builder))?

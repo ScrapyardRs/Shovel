@@ -13,7 +13,7 @@ use rand::RngCore;
 use rsa::PaddingScheme;
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::client::{MCClient, McPacketReader, McPacketWriter};
+use crate::client::{MCConnection, McPacketReader, McPacketWriter};
 use crate::crypto::{private_key_to_der, MCPrivateKey};
 use crate::phase::ConnectionInformation;
 
@@ -114,7 +114,7 @@ pub async fn login_client<R, W>(
     mut read: R,
     mut write: W,
     connection_info: ConnectionInformation,
-) -> drax::prelude::Result<MCClient<R, W>>
+) -> drax::prelude::Result<MCConnection<R, W>>
 where
     R: AsyncRead + Unpin + Send + Sync,
     W: AsyncWrite + Unpin + Send + Sync,
@@ -125,7 +125,7 @@ where
                 None,
                 &LoginDisconnect {
                     reason: format!(
-                        "This server is running a different Minecraft version.\n\
+                        "This server is running a different MC version.\n\
                 Please use {} to play on this server.",
                         crate::version_constants::CURRENT_PROTOCOL_VERSION_STRING
                     )
@@ -212,6 +212,18 @@ where
                     )
                     .await?;
 
+                    if profile.name.ne(&name) {
+                        write
+                            .write_packet(
+                                None,
+                                &LoginDisconnect {
+                                    reason: "Invalid username.".into(),
+                                },
+                            )
+                            .await?;
+                        throw_explain!("Invalid username.")
+                    }
+
                     if matches!(&profile_id, Some(id) if id.ne(&profile.id)) {
                         write
                             .write_packet(
@@ -224,12 +236,11 @@ where
                         throw_explain!("Invalid profile id")
                     }
 
-                    let client = MCClient::new(
+                    let client = MCConnection::new(
                         Some(&shared_secret),
                         read,
                         write,
                         connection_info,
-                        name,
                         profile,
                     );
 

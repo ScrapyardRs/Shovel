@@ -5,7 +5,7 @@ use drax::throw_explain;
 use mcprotocol::handshaking::{ConnectionProtocol, HandshakingRegistry};
 use tokio::io::{AsyncRead, AsyncWrite};
 
-use crate::client::{MCClient, McPacketReader};
+use crate::client::{MCConnection, McPacketReader};
 use crate::crypto::MCPrivateKey;
 use crate::phase::status::StatusBuilder;
 
@@ -32,7 +32,7 @@ pub async fn process_handshake<
     mut read: R,
     write: W,
     client_addr: SocketAddr,
-) -> drax::prelude::Result<Option<MCClient<R, W>>> {
+) -> drax::prelude::Result<Option<MCConnection<R, W>>> {
     let intention_packet = read.read_packet::<HandshakingRegistry>(None).await?;
     let HandshakingRegistry::ClientIntention {
         protocol_version,

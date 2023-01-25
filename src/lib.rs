@@ -3,12 +3,18 @@
 #![feature(int_roundings)]
 #![feature(variant_count)]
 
+use mcprotocol::clientbound::play::ClientboundPlayRegistry;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+
 pub mod client;
 pub mod crypto;
+pub mod math;
 pub mod phase;
 pub mod server;
 pub mod tick;
-pub mod math;
+
+pub type PacketSend = UnboundedSender<ClientboundPlayRegistry>;
+pub type PacketRecv = UnboundedReceiver<ClientboundPlayRegistry>;
 
 pub mod version_constants {
     pub const CURRENT_PROTOCOL_VERSION: i32 = 761;

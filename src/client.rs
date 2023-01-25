@@ -1,29 +1,28 @@
 use std::io::Cursor;
-use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use drax::{PinnedLivelyResult, throw_explain};
 use drax::prelude::{DraxReadExt, DraxWriteExt, ErrorType, PacketComponent, Size};
 use drax::transport::buffer::var_num::size_var_int;
 use drax::transport::encryption::{Cipher, NewCipher};
-use drax::{throw_explain, PinnedLivelyResult};
 use mcprotocol::clientbound::login::ClientboundLoginRegistry::{
     LoginCompression, LoginGameProfile,
 };
+use mcprotocol::clientbound::play::{ClientboundPlayRegistry, RelativeArgument};
 use mcprotocol::clientbound::play::ClientboundPlayRegistry::{
-    ClientLogin, CustomPayload, Disconnect, KeepAlive, PlayerPosition, SetDefaultSpawnPosition,
+    ClientLogin, CustomPayload, KeepAlive, PlayerPosition, SetDefaultSpawnPosition,
 };
-use mcprotocol::clientbound::play::RelativeArgument;
-use mcprotocol::common::chat::Chat;
-use mcprotocol::common::play::{BlockPos, Location, SimpleLocation};
 use mcprotocol::common::GameProfile;
+use mcprotocol::common::play::{BlockPos, Location, SimpleLocation};
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::RwLock;
 
-use crate::phase::play::{ClientLoginProperties, ConnectedPlayer, PacketLocker, TrackingDetails};
 use crate::phase::ConnectionInformation;
-use crate::server::ServerPlayer;
+use crate::phase::play::{ClientLoginProperties, ConnectedPlayer};
+use crate::server::RawConnection;
 
 pub struct WrappedPacketWriter<W> {
     pub writer: W,
@@ -42,10 +41,6 @@ impl<W> WrappedPacketWriter<W> {
         self.cipher = Some(cipher);
     }
 
-    pub fn lock(self) -> PacketWriter<W> {
-        Arc::new(RwLock::new(self))
-    }
-
     pub fn into_inner(self) -> W {
         self.writer
     }
@@ -53,9 +48,18 @@ impl<W> WrappedPacketWriter<W> {
     pub fn write_and_cipher(&mut self) -> (&mut W, Option<&mut Cipher>) {
         (&mut self.writer, self.cipher.as_mut())
     }
-}
 
-pub type PacketWriter<W> = Arc<RwLock<WrappedPacketWriter<W>>>;
+    pub async fn write_play_packet(
+        &mut self,
+        packet: &ClientboundPlayRegistry,
+    ) -> drax::transport::Result<()>
+    where
+        W: AsyncWrite + Unpin + Send + Sync,
+    {
+        let (writer, cipher) = self.write_and_cipher();
+        writer.write_packet(cipher, packet).await
+    }
+}
 
 pub trait McPacketReader {
     fn read_packet<'a, P: PacketComponent<()>>(
@@ -161,24 +165,22 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
     }
 }
 
-pub struct MCClient<R, W> {
+pub struct MCConnection<R, W> {
     pub cipher: Option<Cipher>,
     pub reader: R,
-    pub writer: PacketWriter<W>,
+    pub writer: WrappedPacketWriter<W>,
     compression_threshold: Option<i32>,
     pub connection_information: ConnectionInformation,
-    pub username: String,
     pub profile: GameProfile,
     logged_in: bool,
 }
 
-impl<R, W> MCClient<R, W> {
+impl<R, W> MCConnection<R, W> {
     pub fn new(
         cipher_key: Option<&[u8]>,
         reader: R,
         writer: W,
         connection_information: ConnectionInformation,
-        username: String,
         profile: GameProfile,
     ) -> Self {
         Self {
@@ -187,48 +189,16 @@ impl<R, W> MCClient<R, W> {
             writer: WrappedPacketWriter {
                 writer,
                 cipher: cipher_key.map(|key| NewCipher::new_from_slices(key, key).unwrap()),
-            }
-            .lock(),
+            },
             compression_threshold: None,
             connection_information,
-            username,
             profile,
             logged_in: false,
         }
     }
 }
 
-macro_rules! outsource_write_packet {
-    () => {
-        pub async fn write_packet<P: PacketComponent<(), ComponentType = P> + Send + Sync>(
-            &self,
-            packet: &P,
-        ) -> drax::prelude::Result<()> {
-            match self.compression_threshold {
-                None => {
-                    let mut lock = self.writer.write().await;
-                    let (writer, cipher) = lock.write_and_cipher();
-                    match writer.write_packet(cipher, packet).await {
-                        Ok(()) => {
-                            drop(lock);
-                            Ok(())
-                        }
-                        Err(e) => {
-                            drop(lock);
-                            Err(e)
-                        }
-                    }?;
-                }
-                Some(_threshold) => {
-                    todo!()
-                }
-            }
-            Ok(())
-        }
-    };
-}
-
-impl<R, W> MCClient<R, W>
+impl<R, W> MCConnection<R, W>
 where
     R: AsyncRead + Unpin + Send + Sync,
 {
@@ -242,7 +212,7 @@ where
     }
 }
 
-impl<R, W> MCClient<R, W>
+impl<R, W> MCConnection<R, W>
 where
     W: AsyncWrite + Unpin + Send + Sync,
 {
@@ -250,8 +220,7 @@ where
         if self.logged_in {
             throw_explain!("Client already logged in at this point.");
         }
-        let mut lock = self.writer.write().await;
-        let (writer, cipher) = lock.write_and_cipher();
+        let (writer, cipher) = self.writer.write_and_cipher();
         writer
             .write_packet(
                 cipher,
@@ -260,7 +229,6 @@ where
                 },
             )
             .await?;
-        drop(lock);
         self.logged_in = true;
         Ok(())
     }
@@ -273,12 +241,11 @@ where
             throw_explain!("Client already logged in at this point.");
         }
         self.compression_threshold = Some(threshold);
-        let mut lock = self.writer.write().await;
-        let (writer, cipher) = lock.write_and_cipher();
+        let (writer, cipher) = self.writer.write_and_cipher();
         writer
             .write_packet(cipher, &LoginCompression { threshold })
             .await?;
-        let (writer, cipher) = lock.write_and_cipher();
+        let (writer, cipher) = self.writer.write_and_cipher();
         writer
             .write_compressed_packet(
                 cipher,
@@ -288,56 +255,9 @@ where
                 },
             )
             .await?;
-        drop(lock);
         self.logged_in = true;
         Ok(())
     }
-
-    pub fn clone_writer(&self) -> StructuredWriterClone<W> {
-        StructuredWriterClone {
-            writer: self.writer.clone(),
-            compression_threshold: self.compression_threshold,
-        }
-    }
-
-    outsource_write_packet!();
-
-    // Packet Helper Methods
-
-    pub async fn disconnect<I: Into<Chat>>(&self, reason: I) -> drax::prelude::Result<()> {
-        self.write_packet(&Disconnect {
-            reason: reason.into(),
-        })
-        .await
-    }
-}
-
-pub struct StructuredWriterClone<W> {
-    writer: PacketWriter<W>,
-    compression_threshold: Option<i32>,
-}
-
-impl<W> Clone for StructuredWriterClone<W> {
-    fn clone(&self) -> Self {
-        Self {
-            writer: self.writer.clone(),
-            compression_threshold: self.compression_threshold,
-        }
-    }
-}
-
-impl<W> StructuredWriterClone<W>
-where
-    W: AsyncWrite + Unpin + Send + Sync,
-{
-    pub fn new(writer: PacketWriter<W>, compression_threshold: Option<i32>) -> Self {
-        Self {
-            writer,
-            compression_threshold,
-        }
-    }
-
-    outsource_write_packet!();
 }
 
 pub struct PendingPosition {
@@ -347,18 +267,18 @@ pub struct PendingPosition {
     pub(crate) is_loaded: bool,
 }
 
-pub struct ShovelClient {
-    pub server_player: ServerPlayer,
+pub struct ProcessedPlayer {
+    pub server_player: RawConnection,
     pub current_player_position: Location,
     pub pending_position: Arc<RwLock<PendingPosition>>,
     pub entity_id: i32,
     pub client_count_ref: Arc<AtomicUsize>,
 }
 
-impl ShovelClient {
+impl ProcessedPlayer {
     pub async fn bootstrap_client(
         compression: Option<i32>,
-        mut player: ServerPlayer,
+        mut player: RawConnection,
         initial_position: Location,
         player_id: i32,
         client_count: Arc<AtomicUsize>,
@@ -384,7 +304,7 @@ impl ShovelClient {
     }
 
     pub async fn send_client_login<S: Into<String>>(
-        &self,
+        &mut self,
         brand: S,
         arguments: RelativeArgument,
         properties: ClientLoginProperties,
@@ -404,7 +324,8 @@ impl ShovelClient {
             last_death_location,
         } = properties;
         self.server_player
-            .write_packet(&ClientLogin {
+            .writer
+            .write_play_packet(&ClientLogin {
                 player_id: self.entity_id,
                 hardcore,
                 game_type,
@@ -429,13 +350,15 @@ impl ShovelClient {
             })
             .await?;
         self.server_player
-            .write_packet(&KeepAlive { id: 0 })
+            .writer
+            .write_play_packet(&KeepAlive { id: 0 })
             .await?;
 
         let mut brand_data = Cursor::new(Vec::new());
         String::encode(&brand.into(), &mut (), &mut brand_data).await?;
         self.server_player
-            .write_packet(&CustomPayload {
+            .writer
+            .write_play_packet(&CustomPayload {
                 identifier: format!("minecraft:brand"),
                 data: brand_data.into_inner(),
             })
@@ -444,7 +367,8 @@ impl ShovelClient {
         let inner = self.current_player_position.inner_loc;
 
         self.server_player
-            .write_packet(&SetDefaultSpawnPosition {
+            .writer
+            .write_play_packet(&SetDefaultSpawnPosition {
                 pos: BlockPos {
                     x: inner.x as i32,
                     y: inner.y as i32,
@@ -461,161 +385,156 @@ impl ShovelClient {
             dismount: false,
         };
 
-        self.server_player.write_packet(&position_packet).await
+        self.server_player
+            .writer
+            .write_play_packet(&position_packet)
+            .await
     }
 
-    pub fn keep_alive(mut self) -> ConnectedPlayer {
+    pub async fn keep_alive<F: FnOnce(ConnectedPlayer)>(mut self, func: F) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let profile_clone = self.server_player.profile.clone();
-        let cloned_writer = self.server_player.clone_writer();
-        let passed_cloned_writer = self.server_player.clone_writer();
         let cloned_pending_position = self.pending_position.clone();
         let current_player_position = self.current_player_position;
         let entity_id = self.entity_id;
         let client_count = self.client_count_ref;
         let connection_information = self.server_player.connection_information.clone();
-        tokio::spawn(async move {
-            let pending_position = self.pending_position;
-            let mut seq = 0;
-            loop {
-                let packet = match self
-                    .server_player
-                    .read_packet::<ServerboundPlayRegistry>()
-                    .await
-                {
-                    Ok(packet) => packet,
-                    Err(err) => {
-                        if !matches!(err.error_type, ErrorType::EOF) {
-                            log::error!("Error during client read: {}", err);
-                        }
+
+        // let connected_player = ConnectedPlayer { // todo
+        //     writer: passed_cloned_writer,
+        //     profile: profile_clone,
+        //     packets: PacketLocker {
+        //         packet_listener: rx,
+        //         active: true,
+        //         connection_information,
+        //     },
+        //     position: current_player_position,
+        //     pending_position: cloned_pending_position,
+        //     entity_id,
+        //     tracking: TrackingDetails::default(),
+        //     teleport_id_incr: AtomicI32::new(1),
+        // };
+        //
+        // (func)(connected_player);
+
+        let pending_position = self.pending_position;
+        let mut seq = 0;
+        loop {
+            let packet = match self
+                .server_player
+                .read_packet::<ServerboundPlayRegistry>()
+                .await
+            {
+                Ok(packet) => packet,
+                Err(err) => {
+                    if !matches!(err.error_type, ErrorType::EOF) {
+                        log::error!("Error during client read: {}", err);
+                    }
+                    break;
+                }
+            };
+            match &packet {
+                ServerboundPlayRegistry::KeepAlive { keep_alive_id } => {
+                    let cloned_writer = cloned_writer.clone();
+                    if *keep_alive_id == seq {
+                        seq += 1;
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_secs(1)).await;
+                            if let Err(err) =
+                                cloned_writer.write_packet(&KeepAlive { id: seq }).await
+                            {
+                                log::error!("Error sending keep alive: {}", err);
+                            };
+                        });
+                        continue;
+                    } else {
                         break;
                     }
-                };
-                match &packet {
-                    ServerboundPlayRegistry::KeepAlive { keep_alive_id } => {
-                        let cloned_writer = cloned_writer.clone();
-                        if *keep_alive_id == seq {
-                            seq += 1;
-                            tokio::spawn(async move {
-                                tokio::time::sleep(Duration::from_secs(1)).await;
-                                if let Err(err) =
-                                    cloned_writer.write_packet(&KeepAlive { id: seq }).await
-                                {
-                                    log::error!("Error sending keep alive: {}", err);
-                                };
-                            });
-                            continue;
+                }
+                ServerboundPlayRegistry::AcceptTeleportation { teleportation_id } => {
+                    let mut pending_position = pending_position.write().await;
+                    if let Some(pending_teleport) = pending_position.pending_teleport.take() {
+                        if pending_teleport.1 != *teleportation_id {
+                            pending_position.pending_teleport = Some(pending_teleport);
                         } else {
-                            break;
+                            pending_position.location = pending_teleport.0;
                         }
                     }
-                    ServerboundPlayRegistry::AcceptTeleportation { teleportation_id } => {
-                        let mut pending_position = pending_position.write().await;
-                        if let Some(pending_teleport) = pending_position.pending_teleport.take() {
-                            if pending_teleport.1 != *teleportation_id {
-                                pending_position.pending_teleport = Some(pending_teleport);
-                            } else {
-                                pending_position.location = pending_teleport.0;
-                            }
-                        }
+                }
+                ServerboundPlayRegistry::MovePlayerPos { x, y, z, on_ground } => {
+                    let mut lock = pending_position.write().await;
+                    if lock.pending_teleport.is_some() {
+                        continue;
                     }
-                    ServerboundPlayRegistry::MovePlayerPos { x, y, z, on_ground } => {
-                        let mut lock = pending_position.write().await;
-                        if lock.pending_teleport.is_some() {
-                            continue;
-                        }
-                        lock.location.inner_loc = SimpleLocation {
+                    lock.location.inner_loc = SimpleLocation {
+                        x: *x,
+                        y: *y,
+                        z: *z,
+                    };
+                    lock.on_ground = *on_ground;
+                    if !lock.is_loaded {
+                        lock.is_loaded = true;
+                    }
+                }
+                ServerboundPlayRegistry::MovePlayerPosRot {
+                    x,
+                    y,
+                    z,
+                    x_rot,
+                    y_rot,
+                    on_ground,
+                } => {
+                    let mut lock = pending_position.write().await;
+                    if lock.pending_teleport.is_some() {
+                        continue;
+                    }
+                    lock.location = Location {
+                        inner_loc: SimpleLocation {
                             x: *x,
                             y: *y,
                             z: *z,
-                        };
-                        lock.on_ground = *on_ground;
-                        if !lock.is_loaded {
-                            lock.is_loaded = true;
-                        }
-                    }
-                    ServerboundPlayRegistry::MovePlayerPosRot {
-                        x,
-                        y,
-                        z,
-                        x_rot,
-                        y_rot,
-                        on_ground,
-                    } => {
-                        let mut lock = pending_position.write().await;
-                        if lock.pending_teleport.is_some() {
-                            continue;
-                        }
-                        lock.location = Location {
-                            inner_loc: SimpleLocation {
-                                x: *x,
-                                y: *y,
-                                z: *z,
-                            },
-                            yaw: *y_rot,
-                            pitch: *x_rot,
-                        };
-                        lock.on_ground = *on_ground;
-                        if !lock.is_loaded {
-                            lock.is_loaded = true;
-                        }
-                    }
-                    ServerboundPlayRegistry::MovePlayerRot {
-                        x_rot,
-                        y_rot,
-                        on_ground,
-                    } => {
-                        let mut lock = pending_position.write().await;
-                        if lock.pending_teleport.is_some() {
-                            continue;
-                        }
-                        lock.location.yaw = *y_rot;
-                        lock.location.pitch = *x_rot;
-                        lock.on_ground = *on_ground;
-                        if !lock.is_loaded {
-                            lock.is_loaded = true;
-                        }
-                    }
-                    ServerboundPlayRegistry::MovePlayerStatusOnly { status } => {
-                        let mut lock = pending_position.write().await;
-                        if lock.pending_teleport.is_some() {
-                            continue;
-                        }
-                        lock.on_ground = *status != 0;
-                        if !lock.is_loaded {
-                            lock.is_loaded = true;
-                        }
-                    }
-                    _ => {
-                        if let Err(_) = tx.send(packet) {
-                            break;
-                        };
+                        },
+                        yaw: *y_rot,
+                        pitch: *x_rot,
+                    };
+                    lock.on_ground = *on_ground;
+                    if !lock.is_loaded {
+                        lock.is_loaded = true;
                     }
                 }
+                ServerboundPlayRegistry::MovePlayerRot {
+                    x_rot,
+                    y_rot,
+                    on_ground,
+                } => {
+                    let mut lock = pending_position.write().await;
+                    if lock.pending_teleport.is_some() {
+                        continue;
+                    }
+                    lock.location.yaw = *y_rot;
+                    lock.location.pitch = *x_rot;
+                    lock.on_ground = *on_ground;
+                    if !lock.is_loaded {
+                        lock.is_loaded = true;
+                    }
+                }
+                ServerboundPlayRegistry::MovePlayerStatusOnly { status } => {
+                    let mut lock = pending_position.write().await;
+                    if lock.pending_teleport.is_some() {
+                        continue;
+                    }
+                    lock.on_ground = *status != 0;
+                    if !lock.is_loaded {
+                        lock.is_loaded = true;
+                    }
+                }
+                _ => {
+                    if let Err(_) = tx.send(packet) {
+                        break;
+                    };
+                }
             }
-            client_count.fetch_sub(1, Ordering::SeqCst);
-        });
-        ConnectedPlayer {
-            writer: passed_cloned_writer,
-            profile: profile_clone,
-            packets: PacketLocker {
-                packet_listener: rx,
-                active: true,
-                connection_information,
-            },
-            position: current_player_position,
-            pending_position: cloned_pending_position,
-            entity_id,
-            tracking: TrackingDetails::default(),
-            teleport_id_incr: AtomicI32::new(1),
         }
-    }
-
-    #[inline]
-    pub async fn write_packet<P: PacketComponent<(), ComponentType = P> + Send + Sync>(
-        &self,
-        packet: &P,
-    ) -> drax::prelude::Result<()> {
-        self.server_player.write_packet(packet).await
+        client_count.fetch_sub(1, Ordering::SeqCst);
     }
 }
