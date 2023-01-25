@@ -1,28 +1,27 @@
 use std::io::Cursor;
-use std::rc::Rc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::time::Duration;
 
+use drax::{PinnedLivelyResult, throw_explain};
 use drax::prelude::{DraxReadExt, DraxWriteExt, ErrorType, PacketComponent, Size};
 use drax::transport::buffer::var_num::size_var_int;
 use drax::transport::encryption::{Cipher, NewCipher};
-use drax::{throw_explain, PinnedLivelyResult};
 use mcprotocol::clientbound::login::ClientboundLoginRegistry::{
     LoginCompression, LoginGameProfile,
 };
+use mcprotocol::clientbound::play::{ClientboundPlayRegistry, RelativeArgument};
 use mcprotocol::clientbound::play::ClientboundPlayRegistry::{
     ClientLogin, CustomPayload, KeepAlive, PlayerPosition, SetDefaultSpawnPosition,
 };
-use mcprotocol::clientbound::play::{ClientboundPlayRegistry, RelativeArgument};
-use mcprotocol::common::play::{BlockPos, Location, SimpleLocation};
 use mcprotocol::common::GameProfile;
+use mcprotocol::common::play::{BlockPos, Location, SimpleLocation};
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::RwLock;
 
-use crate::phase::play::{ClientLoginProperties, ConnectedPlayer};
 use crate::phase::ConnectionInformation;
+use crate::phase::play::{ClientLoginProperties, ConnectedPlayer, PacketLocker};
 use crate::server::RawConnection;
 
 pub struct WrappedPacketWriter<W> {
@@ -392,151 +391,175 @@ impl ProcessedPlayer {
             .await
     }
 
-    pub async fn keep_alive<F: FnOnce(ConnectedPlayer)>(mut self, func: F) {
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        let profile_clone = self.server_player.profile.clone();
-        let cloned_pending_position = self.pending_position.clone();
-        let current_player_position = self.current_player_position;
-        let entity_id = self.entity_id;
+    pub async fn keep_alive(self) -> ConnectedPlayer {
+        // read thread
         let client_count = self.client_count_ref;
-        let connection_information = self.server_player.connection_information.clone();
+        let (packet_writer_tx, mut packet_writer_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let (packet_writer_tx, packet_writer_rx) = tokio::sync::mpsc::unbounded_channel();
+        let RawConnection {
+            mut cipher,
+            mut reader,
+            mut writer,
+            compression_threshold,
+            connection_information,
+            profile,
+            ..
+        } = self.server_player;
 
-        // let connected_player = ConnectedPlayer { // todo
-        //     writer: passed_cloned_writer,
-        //     profile: profile_clone,
-        //     packets: PacketLocker {
-        //         packet_listener: rx,
-        //         active: true,
-        //         connection_information,
-        //     },
-        //     position: current_player_position,
-        //     pending_position: cloned_pending_position,
-        //     entity_id,
-        //     tracking: TrackingDetails::default(),
-        //     teleport_id_incr: AtomicI32::new(1),
-        // };
-        //
-        // (func)(connected_player);
+        let connected_player = ConnectedPlayer {
+            packets: PacketLocker {
+                send: packet_writer_tx.clone(),
+                packet_listener: rx,
+                active: false,
+                connection_information,
+            },
+            entity_id: self.entity_id,
+            profile,
+            is_position_loaded: false,
+            position: self.current_player_position,
+            on_ground: false,
+            pending_position: self.pending_position.clone(),
+            teleport_id_incr: AtomicI32::new(0),
+            known_chunks: Default::default(),
+        };
 
-        let pending_position = self.pending_position;
-        let mut seq = 0;
-        loop {
-            let pw = packet_writer_tx.clone();
-            let packet = match self
-                .server_player
-                .read_packet::<ServerboundPlayRegistry>()
-                .await
-            {
-                Ok(packet) => packet,
-                Err(err) => {
-                    if !matches!(err.error_type, ErrorType::EOF) {
-                        log::error!("Error during client read: {}", err);
+        tokio::spawn(async move {
+            let pending_position = self.pending_position;
+            let mut seq = 0;
+            loop {
+                let pw = packet_writer_tx.clone();
+                match match match compression_threshold {
+                    Some(_) => {
+                        reader
+                            .read_compressed_packet::<ServerboundPlayRegistry>(cipher.as_mut())
+                            .await
                     }
-                    break;
-                }
-            };
-            match &packet {
-                ServerboundPlayRegistry::KeepAlive { keep_alive_id } => {
-                    if *keep_alive_id == seq {
-                        seq += 1;
-                        tokio::spawn(async move {
-                            tokio::time::sleep(Duration::from_secs(1)).await;
-                            if let Err(err) = pw.send(Arc::new(KeepAlive { id: seq })) {
-                                log::error!("Error sending keep alive: {}", err);
-                            };
-                        });
-                        continue;
-                    } else {
+                    None => {
+                        reader
+                            .read_packet::<ServerboundPlayRegistry>(cipher.as_mut())
+                            .await
+                    }
+                } {
+                    Ok(packet) => packet,
+                    Err(err) => {
+                        if !matches!(err.error_type, ErrorType::EOF) {
+                            log::error!("Error during client read: {}", err);
+                        }
                         break;
                     }
-                }
-                ServerboundPlayRegistry::AcceptTeleportation { teleportation_id } => {
-                    let mut pending_position = pending_position.write().await;
-                    if let Some(pending_teleport) = pending_position.pending_teleport.take() {
-                        if pending_teleport.1 != *teleportation_id {
-                            pending_position.pending_teleport = Some(pending_teleport);
+                } {
+                    ServerboundPlayRegistry::KeepAlive { keep_alive_id } => {
+                        if keep_alive_id == seq {
+                            seq += 1;
+                            tokio::spawn(async move {
+                                tokio::time::sleep(Duration::from_secs(1)).await;
+                                if let Err(err) = pw.send(Arc::new(KeepAlive { id: seq })) {
+                                    log::error!("Error sending keep alive: {}", err);
+                                };
+                            });
+                            continue;
                         } else {
-                            pending_position.location = pending_teleport.0;
+                            break;
                         }
                     }
-                }
-                ServerboundPlayRegistry::MovePlayerPos { x, y, z, on_ground } => {
-                    let mut lock = pending_position.write().await;
-                    if lock.pending_teleport.is_some() {
-                        continue;
+                    ServerboundPlayRegistry::AcceptTeleportation { teleportation_id } => {
+                        let mut pending_position = pending_position.write().await;
+                        if let Some(pending_teleport) = pending_position.pending_teleport.take() {
+                            if pending_teleport.1 != teleportation_id {
+                                pending_position.pending_teleport = Some(pending_teleport);
+                            } else {
+                                pending_position.location = pending_teleport.0;
+                            }
+                        }
                     }
-                    lock.location.inner_loc = SimpleLocation {
-                        x: x.clamp(-3.0e7, 3.0e7),
-                        y: y.clamp(-2.0e7, 2.0e7),
-                        z: z.clamp(-3.0e7, 3.0e7),
-                    };
-                    lock.on_ground = *on_ground;
-                    if !lock.is_loaded {
-                        lock.is_loaded = true;
-                    }
-                }
-                ServerboundPlayRegistry::MovePlayerPosRot {
-                    x,
-                    y,
-                    z,
-                    x_rot,
-                    y_rot,
-                    on_ground,
-                } => {
-                    let mut lock = pending_position.write().await;
-                    if lock.pending_teleport.is_some() {
-                        continue;
-                    }
-                    lock.location = Location {
-                        inner_loc: SimpleLocation {
+                    ServerboundPlayRegistry::MovePlayerPos { x, y, z, on_ground } => {
+                        let mut lock = pending_position.write().await;
+                        if lock.pending_teleport.is_some() {
+                            continue;
+                        }
+                        lock.location.inner_loc = SimpleLocation {
                             x: x.clamp(-3.0e7, 3.0e7),
                             y: y.clamp(-2.0e7, 2.0e7),
                             z: z.clamp(-3.0e7, 3.0e7),
-                        },
-                        yaw: crate::math::wrap_degrees(*y_rot),
-                        pitch: crate::math::wrap_degrees(*x_rot),
-                    };
-                    lock.on_ground = *on_ground;
-                    if !lock.is_loaded {
-                        lock.is_loaded = true;
+                        };
+                        lock.on_ground = on_ground;
+                        if !lock.is_loaded {
+                            lock.is_loaded = true;
+                        }
                     }
-                }
-                ServerboundPlayRegistry::MovePlayerRot {
-                    x_rot,
-                    y_rot,
-                    on_ground,
-                } => {
-                    let mut lock = pending_position.write().await;
-                    if lock.pending_teleport.is_some() {
-                        continue;
+                    ServerboundPlayRegistry::MovePlayerPosRot {
+                        x,
+                        y,
+                        z,
+                        x_rot,
+                        y_rot,
+                        on_ground,
+                    } => {
+                        let mut lock = pending_position.write().await;
+                        if lock.pending_teleport.is_some() {
+                            continue;
+                        }
+                        lock.location = Location {
+                            inner_loc: SimpleLocation {
+                                x: x.clamp(-3.0e7, 3.0e7),
+                                y: y.clamp(-2.0e7, 2.0e7),
+                                z: z.clamp(-3.0e7, 3.0e7),
+                            },
+                            yaw: crate::math::wrap_degrees(y_rot),
+                            pitch: crate::math::wrap_degrees(x_rot),
+                        };
+                        lock.on_ground = on_ground;
+                        if !lock.is_loaded {
+                            lock.is_loaded = true;
+                        }
                     }
-                    lock.location.yaw = crate::math::wrap_degrees(*y_rot);
-                    lock.location.pitch = crate::math::wrap_degrees(*x_rot);
-                    lock.on_ground = *on_ground;
-                    if !lock.is_loaded {
-                        lock.is_loaded = true;
+                    ServerboundPlayRegistry::MovePlayerRot {
+                        x_rot,
+                        y_rot,
+                        on_ground,
+                    } => {
+                        let mut lock = pending_position.write().await;
+                        if lock.pending_teleport.is_some() {
+                            continue;
+                        }
+                        lock.location.yaw = crate::math::wrap_degrees(y_rot);
+                        lock.location.pitch = crate::math::wrap_degrees(x_rot);
+                        lock.on_ground = on_ground;
+                        if !lock.is_loaded {
+                            lock.is_loaded = true;
+                        }
                     }
-                }
-                ServerboundPlayRegistry::MovePlayerStatusOnly { status } => {
-                    let mut lock = pending_position.write().await;
-                    if lock.pending_teleport.is_some() {
-                        continue;
+                    ServerboundPlayRegistry::MovePlayerStatusOnly { status } => {
+                        let mut lock = pending_position.write().await;
+                        if lock.pending_teleport.is_some() {
+                            continue;
+                        }
+                        lock.on_ground = status != 0;
+                        if !lock.is_loaded {
+                            lock.is_loaded = true;
+                        }
                     }
-                    lock.on_ground = *status != 0;
-                    if !lock.is_loaded {
-                        lock.is_loaded = true;
+                    packet => {
+                        if let Err(_) = tx.send(packet) {
+                            break;
+                        };
                     }
-                }
-                _ => {
-                    if let Err(_) = tx.send(packet) {
-                        break;
-                    };
                 }
             }
-        }
-        client_count.fetch_sub(1, Ordering::SeqCst);
+            client_count.fetch_sub(1, Ordering::SeqCst);
+        });
+
+        // write thread
+        tokio::spawn(async move {
+            while let Some(packet) = packet_writer_rx.recv().await {
+                if let Err(_) = writer.write_play_packet(&*packet).await {
+                    break;
+                };
+            }
+        });
+
+        connected_player
     }
 }
 

@@ -1,6 +1,7 @@
+use mcprotocol::common::chunk::{BasicRegion, CachedLevel};
+
 use crate::entity::tracking::TrackableEntity;
 use crate::phase::play::ConnectedPlayer;
-use mcprotocol::common::chunk::{BasicRegion, CachedLevel, Chunk};
 
 #[macro_export]
 macro_rules! empty_light_data {

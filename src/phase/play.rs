@@ -1,25 +1,25 @@
 use std::collections::HashSet;
 use std::io::Cursor;
-use std::sync::atomic::AtomicI32;
 use std::sync::Arc;
+use std::sync::atomic::AtomicI32;
 
 use drax::nbt::{EnsuredCompoundTag, Tag};
 use drax::prelude::PacketComponent;
 use mcprotocol::clientbound::play::{ClientboundPlayRegistry, LevelChunkData, RelativeArgument};
-use mcprotocol::common::chunk::{CachedLevel, Chunk};
-use mcprotocol::common::play::{GlobalPos, Location};
+use mcprotocol::common::chunk::Chunk;
 use mcprotocol::common::GameProfile;
+use mcprotocol::common::play::{GlobalPos, Location};
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
+use crate::{empty_light_data, PacketSend};
 use crate::client::PendingPosition;
 use crate::entity::tracking::{EntityPositionTracker, TrackableEntity};
 use crate::level::PlayerLevel;
 use crate::phase::ConnectionInformation;
-use crate::{empty_light_data, PacketSend};
 
 const CURRENT_CODEC_BYTES: &[u8] = include_bytes!("761.b.nbt");
 // todo we should implement the codec better than this
@@ -103,16 +103,16 @@ pub struct ConnectedPlayer {
     // conn
     pub packets: PacketLocker,
     // base player info
-    entity_id: i32,
-    profile: GameProfile,
+    pub(crate) entity_id: i32,
+    pub(crate) profile: GameProfile,
     // position information
-    is_position_loaded: bool,
-    position: Location,
-    on_ground: bool,
+    pub(crate) is_position_loaded: bool,
+    pub(crate) position: Location,
+    pub(crate) on_ground: bool,
     pub(crate) pending_position: Arc<RwLock<PendingPosition>>,
     pub(crate) teleport_id_incr: AtomicI32,
     // level information
-    known_chunks: HashSet<(i32, i32)>,
+    pub(crate) known_chunks: HashSet<(i32, i32)>,
 }
 
 impl TrackableEntity for ConnectedPlayer {
