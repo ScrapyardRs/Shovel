@@ -82,7 +82,6 @@ impl<A: AsyncRead + Unpin + Send + Sync + Sized> McPacketReader for A {
             let (cipher, packet_size) = if let Some(cipher) = cipher {
                 let mut decrypt = <Self as DraxReadExt>::decrypt(self, cipher);
                 let size = decrypt.read_var_int().await?;
-                drop(decrypt);
                 (Some(cipher), size)
             } else {
                 (None, self.read_var_int().await?)
@@ -101,8 +100,8 @@ impl<A: AsyncRead + Unpin + Send + Sync + Sized> McPacketReader for A {
             } else {
                 buffer.into_inner()
             });
-            let packet = P::decode(&mut (), &mut buffer).await;
-            packet
+            
+            P::decode(&mut (), &mut buffer).await
         })
     }
 
@@ -154,7 +153,7 @@ impl<A: AsyncWrite + Unpin + Send + Sync> McPacketWriter for A {
             let len = size_var_int(size) + size as usize;
             let mut buffer = Cursor::new(Vec::with_capacity(len));
             buffer.write_var_int(size).await?;
-            P::encode(&packet, &mut (), &mut buffer).await?;
+            P::encode(packet, &mut (), &mut buffer).await?;
             let mut buffer = buffer.into_inner();
             if let Some(cipher) = cipher {
                 drax::transport::encryption::AsyncStreamCipher::encrypt(cipher, &mut buffer);
@@ -291,10 +290,10 @@ impl ProcessedPlayer {
 
         Ok(Self {
             server_player: player,
-            current_player_position: initial_position.clone(),
+            current_player_position: initial_position,
             pending_position: Arc::new(RwLock::new(PendingPosition {
-                location: initial_position.clone(),
-                pending_teleport: Some((initial_position.clone(), 0)),
+                location: initial_position,
+                pending_teleport: Some((initial_position, 0)),
                 on_ground: false,
                 is_loaded: false,
             })),
@@ -359,7 +358,7 @@ impl ProcessedPlayer {
         self.server_player
             .writer
             .write_play_packet(&CustomPayload {
-                identifier: format!("minecraft:brand"),
+                identifier: "minecraft:brand".to_string(),
                 data: brand_data.into_inner(),
             })
             .await?;
@@ -541,7 +540,7 @@ impl ProcessedPlayer {
                         }
                     }
                     packet => {
-                        if let Err(_) = tx.send(packet) {
+                        if tx.send(packet).is_err() {
                             break;
                         };
                     }
@@ -553,7 +552,7 @@ impl ProcessedPlayer {
         // write thread
         tokio::spawn(async move {
             while let Some(packet) = packet_writer_rx.recv().await {
-                if let Err(_) = writer.write_play_packet(&*packet).await {
+                if writer.write_play_packet(&packet).await.is_err() {
                     break;
                 };
             }
@@ -578,14 +577,14 @@ impl<T> ConditionalPacket<T> {
             ConditionalPacket::Unconditional(packet) => {
                 let packet = Arc::new(packet);
                 for client in clients {
-                    sender_fn(&client, packet.clone());
+                    sender_fn(client, packet.clone());
                 }
             }
             ConditionalPacket::Conditional(packet, condition) => {
                 let packet = Arc::new(packet);
                 for client in clients {
-                    if condition(&client) {
-                        sender_fn(&client, packet.clone());
+                    if condition(client) {
+                        sender_fn(client, packet.clone());
                     }
                 }
             }

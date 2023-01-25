@@ -5,6 +5,7 @@ use std::task::{Context, Poll};
 use pin_project_lite::pin_project;
 
 pub trait AwaitingEntity {
+    #[allow(clippy::result_unit_err)]
     fn poll_tick(&mut self, cx: &mut Context) -> Result<bool, ()>;
 }
 

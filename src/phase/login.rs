@@ -33,24 +33,24 @@ async fn call_mojang_auth(
     let url = format!("{server}{route}{params}");
     let mut url = url
         .parse::<hyper::Uri>()
-        .map_err(|err| err_explain!(format!("Error parsing hyper URI: {}", err)))?;
+        .map_err(|err| err_explain!(format!("Error parsing hyper URI: {err}")))?;
 
     loop {
         let res = client
             .get(url)
             .await
-            .map_err(|err| err_explain!(format!("Error sending request: {}", err)))?;
+            .map_err(|err| err_explain!(format!("Error sending request: {err}")))?;
 
         match res.status().as_u16() {
             301 | 307 | 308 => {
                 if let Some(redirect) = res.headers().get("Location") {
                     let redirect = redirect.to_str().map_err(|err| {
-                        err_explain!(format!("Error converting redirect to string: {}", err))
+                        err_explain!(format!("Error converting redirect to string: {err}"))
                     })?;
                     url = redirect
                         .to_string()
                         .parse::<hyper::Uri>()
-                        .map_err(|err| err_explain!(format!("Error parsing hyper URI: {}", err)))?;
+                        .map_err(|err| err_explain!(format!("Error parsing hyper URI: {err}")))?;
                     continue;
                 } else {
                     throw_explain!("No redirect location found!");
@@ -69,13 +69,13 @@ async fn call_mojang_auth(
         }
 
         let body = to_bytes(res.into_body()).await.map_err(|err| {
-            err_explain!(format!("Failed to process bytes from response, {}", err))
+            err_explain!(format!("Failed to process bytes from response, {err}"))
         })?;
 
         let profile: GameProfile = match serde_json::from_slice(&body) {
             Ok(profile) => profile,
             Err(err) => {
-                throw_explain!(format!("Error retrieving profile: {}", err))
+                throw_explain!(format!("Error retrieving profile: {err}"))
             }
         };
 

@@ -42,10 +42,10 @@ impl EntityPositionTracker {
         Self {
             entity_id_ref: entity,
             entity_uuid_ref: entity_uuid,
-            last_tracked_location: initial.clone(),
+            last_tracked_location: initial,
             tick: 0,
             rot_cache: (
-                y_rot_bits.clone(),
+                y_rot_bits,
                 f32::floor((initial.yaw * 256.0) / 360.0) as i32,
                 y_rot_bits,
             ),
@@ -219,23 +219,7 @@ macro_rules! assign_entity_tracker {
     };
 }
 
-pub struct ExampleEntity {
-    id: i32,
-    uuid: Uuid,
-    location: Location,
-    on_ground: bool,
-}
-
-assign_entity_tracker!(
-    ExampleEntity,
-    self,
-    self.id,
-    self.uuid,
-    self.location,
-    self.on_ground,
-    0
-);
-
+#[derive(Default)]
 pub struct EntityTracker {
     pub entities: HashMap<Uuid, EntityPositionTracker>,
     pub removed_entities_since_last_tick: Vec<i32>,
@@ -261,7 +245,7 @@ impl EntityTracker {
             EntityPositionTracker::create_from_initial_location(
                 T::id(entity),
                 uuid,
-                T::location(entity).clone(),
+                T::location(entity),
                 T::on_ground(entity),
                 T::create_entity,
                 TrackingState::UnknownNonPlayerEntity,
@@ -276,7 +260,7 @@ impl EntityTracker {
             EntityPositionTracker::create_from_initial_location(
                 T::id(entity),
                 uuid,
-                T::location(entity).clone(),
+                T::location(entity),
                 T::on_ground(entity),
                 T::create_entity,
                 TrackingState::WaitingForPlayers { packet_sender },
@@ -306,7 +290,7 @@ impl EntityTracker {
     pub fn tick<PositionAccessor: Fn(Uuid) -> EntityData>(&mut self, accessor: PositionAccessor) {
         let mut broadcasts: Vec<ConditionalPacket<EntityPositionTracker>> = vec![];
 
-        for (_, entity) in &mut self.entities {
+        for entity in self.entities.values_mut() {
             let EntityData {
                 entity_location,
                 entity_on_ground,
@@ -315,7 +299,7 @@ impl EntityTracker {
 
             let id = entity.entity_id_ref;
 
-            let create_entity_packet = (entity.create_entity_fn)(&entity);
+            let create_entity_packet = (entity.create_entity_fn)(entity);
 
             match entity.state {
                 TrackingState::WaitingForPlayers { .. } | TrackingState::UnknownNonPlayerEntity => {

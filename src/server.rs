@@ -156,7 +156,7 @@ where
                         if let Ok(client) = ProcessedPlayer::bootstrap_client(
                             compression_threshold,
                             client,
-                            initial_location.clone(),
+                            initial_location,
                             entity_count_locker.fetch_add(1, Ordering::SeqCst),
                             client_count,
                         )

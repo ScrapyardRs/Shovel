@@ -1,25 +1,25 @@
 use std::collections::HashSet;
 use std::io::Cursor;
-use std::sync::Arc;
 use std::sync::atomic::AtomicI32;
+use std::sync::Arc;
 
 use drax::nbt::{EnsuredCompoundTag, Tag};
 use drax::prelude::PacketComponent;
 use mcprotocol::clientbound::play::{ClientboundPlayRegistry, LevelChunkData, RelativeArgument};
 use mcprotocol::common::chunk::Chunk;
-use mcprotocol::common::GameProfile;
 use mcprotocol::common::play::{GlobalPos, Location};
+use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
 use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 
-use crate::{empty_light_data, PacketSend};
 use crate::client::PendingPosition;
 use crate::entity::tracking::{EntityPositionTracker, TrackableEntity};
 use crate::level::PlayerLevel;
 use crate::phase::ConnectionInformation;
+use crate::{empty_light_data, PacketSend};
 
 const CURRENT_CODEC_BYTES: &[u8] = include_bytes!("761.b.nbt");
 // todo we should implement the codec better than this
@@ -89,7 +89,7 @@ impl PacketLocker {
         if !self.active {
             return;
         }
-        if let Err(_) = self.send.send(packet) {
+        if self.send.send(packet).is_err() {
             self.active = false;
         }
     }
@@ -135,7 +135,7 @@ impl TrackableEntity for ConnectedPlayer {
     fn create_entity(position_tracker: &EntityPositionTracker) -> ClientboundPlayRegistry {
         ClientboundPlayRegistry::AddPlayer {
             entity_id: position_tracker.entity_id_ref,
-            player_id: position_tracker.entity_uuid_ref.clone(),
+            player_id: position_tracker.entity_uuid_ref,
             location: position_tracker.last_tracked_location.inner_loc,
             y_rot: position_tracker.rot_cache.0 as u8,
             x_rot: position_tracker.rot_cache.1 as u8,
@@ -173,7 +173,7 @@ impl ConnectedPlayer {
             .teleport_id_incr
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let mut pending = self.pending_position.write().await;
-        pending.pending_teleport = Some((location.clone(), teleport_id));
+        pending.pending_teleport = Some((location, teleport_id));
         if pause_position {
             pending.is_loaded = false;
         }
@@ -212,7 +212,7 @@ impl ConnectedPlayer {
         if !pending_position.is_loaded {
             return false;
         }
-        let pending = pending_position.location.clone();
+        let pending = pending_position.location;
         drop(pending_position);
         if !self.is_position_loaded {
             self.is_position_loaded = true;
@@ -222,12 +222,9 @@ impl ConnectedPlayer {
             != f64::floor(pending.inner_loc.x) as i32 >> 4
         {
             true
-        } else if f64::floor(self.position.inner_loc.z) as i32 >> 4
-            != f64::floor(pending.inner_loc.z) as i32 >> 4
-        {
-            true
         } else {
-            false
+            f64::floor(self.position.inner_loc.z) as i32 >> 4
+                != f64::floor(pending.inner_loc.z) as i32 >> 4
         };
         self.position = pending;
         changed_chunk
