@@ -1,27 +1,28 @@
 use std::io::Cursor;
-use std::sync::Arc;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
-use drax::{PinnedLivelyResult, throw_explain};
 use drax::prelude::{DraxReadExt, DraxWriteExt, ErrorType, PacketComponent, Size};
 use drax::transport::buffer::var_num::size_var_int;
 use drax::transport::encryption::{Cipher, NewCipher};
+use drax::{throw_explain, PinnedLivelyResult};
 use mcprotocol::clientbound::login::ClientboundLoginRegistry::{
     LoginCompression, LoginGameProfile,
 };
-use mcprotocol::clientbound::play::{ClientboundPlayRegistry, RelativeArgument};
 use mcprotocol::clientbound::play::ClientboundPlayRegistry::{
     ClientLogin, CustomPayload, KeepAlive, PlayerPosition, SetDefaultSpawnPosition,
 };
-use mcprotocol::common::GameProfile;
+use mcprotocol::clientbound::play::{ClientboundPlayRegistry, RelativeArgument};
 use mcprotocol::common::play::{BlockPos, Location, SimpleLocation};
+use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::RwLock;
 
-use crate::phase::ConnectionInformation;
 use crate::phase::play::{ClientLoginProperties, ConnectedPlayer};
+use crate::phase::ConnectionInformation;
 use crate::server::RawConnection;
 
 pub struct WrappedPacketWriter<W> {
@@ -400,6 +401,8 @@ impl ProcessedPlayer {
         let client_count = self.client_count_ref;
         let connection_information = self.server_player.connection_information.clone();
 
+        let (packet_writer_tx, packet_writer_rx) = tokio::sync::mpsc::unbounded_channel();
+
         // let connected_player = ConnectedPlayer { // todo
         //     writer: passed_cloned_writer,
         //     profile: profile_clone,
@@ -420,6 +423,7 @@ impl ProcessedPlayer {
         let pending_position = self.pending_position;
         let mut seq = 0;
         loop {
+            let pw = packet_writer_tx.clone();
             let packet = match self
                 .server_player
                 .read_packet::<ServerboundPlayRegistry>()
@@ -435,14 +439,11 @@ impl ProcessedPlayer {
             };
             match &packet {
                 ServerboundPlayRegistry::KeepAlive { keep_alive_id } => {
-                    let cloned_writer = cloned_writer.clone();
                     if *keep_alive_id == seq {
                         seq += 1;
                         tokio::spawn(async move {
                             tokio::time::sleep(Duration::from_secs(1)).await;
-                            if let Err(err) =
-                                cloned_writer.write_packet(&KeepAlive { id: seq }).await
-                            {
+                            if let Err(err) = pw.send(Arc::new(KeepAlive { id: seq })) {
                                 log::error!("Error sending keep alive: {}", err);
                             };
                         });
@@ -467,9 +468,9 @@ impl ProcessedPlayer {
                         continue;
                     }
                     lock.location.inner_loc = SimpleLocation {
-                        x: *x,
-                        y: *y,
-                        z: *z,
+                        x: x.clamp(-3.0e7, 3.0e7),
+                        y: y.clamp(-2.0e7, 2.0e7),
+                        z: z.clamp(-3.0e7, 3.0e7),
                     };
                     lock.on_ground = *on_ground;
                     if !lock.is_loaded {
@@ -490,12 +491,12 @@ impl ProcessedPlayer {
                     }
                     lock.location = Location {
                         inner_loc: SimpleLocation {
-                            x: *x,
-                            y: *y,
-                            z: *z,
+                            x: x.clamp(-3.0e7, 3.0e7),
+                            y: y.clamp(-2.0e7, 2.0e7),
+                            z: z.clamp(-3.0e7, 3.0e7),
                         },
-                        yaw: *y_rot,
-                        pitch: *x_rot,
+                        yaw: crate::math::wrap_degrees(*y_rot),
+                        pitch: crate::math::wrap_degrees(*x_rot),
                     };
                     lock.on_ground = *on_ground;
                     if !lock.is_loaded {
@@ -511,8 +512,8 @@ impl ProcessedPlayer {
                     if lock.pending_teleport.is_some() {
                         continue;
                     }
-                    lock.location.yaw = *y_rot;
-                    lock.location.pitch = *x_rot;
+                    lock.location.yaw = crate::math::wrap_degrees(*y_rot);
+                    lock.location.pitch = crate::math::wrap_degrees(*x_rot);
                     lock.on_ground = *on_ground;
                     if !lock.is_loaded {
                         lock.is_loaded = true;
@@ -536,5 +537,35 @@ impl ProcessedPlayer {
             }
         }
         client_count.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+pub enum ConditionalPacket<T> {
+    Unconditional(ClientboundPlayRegistry),
+    Conditional(ClientboundPlayRegistry, Box<dyn for<'a> Fn(&'a T) -> bool>),
+}
+
+impl<T> ConditionalPacket<T> {
+    pub fn send_to_clients<'a, I: Iterator<Item = &'a T>>(
+        self,
+        clients: I,
+        sender_fn: fn(&'a T, Arc<ClientboundPlayRegistry>),
+    ) {
+        match self {
+            ConditionalPacket::Unconditional(packet) => {
+                let packet = Arc::new(packet);
+                for client in clients {
+                    sender_fn(&client, packet.clone());
+                }
+            }
+            ConditionalPacket::Conditional(packet, condition) => {
+                let packet = Arc::new(packet);
+                for client in clients {
+                    if condition(&client) {
+                        sender_fn(&client, packet.clone());
+                    }
+                }
+            }
+        }
     }
 }
