@@ -362,4 +362,13 @@ impl ConnectedPlayer {
         let forward = self.player_inventory_mut().set_current_slot(slot);
         self.write_owned_packet(forward);
     }
+
+    // general helper
+
+    pub fn send_message<C: Into<Chat>>(&mut self, chat: C) {
+        self.write_owned_packet(ClientboundPlayRegistry::SystemChat {
+            content: chat.into(),
+            overlay: false,
+        });
+    }
 }
