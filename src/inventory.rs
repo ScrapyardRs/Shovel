@@ -254,7 +254,7 @@ impl Menu {
         temp
     }
 
-    pub fn send_to_player(&mut self, player: &mut ConnectedPlayer) {
+    pub fn send_to_player(&self, player: &mut ConnectedPlayer) {
         player.write_owned_packet(OpenScreen {
             container_id: self.container_id as i32,
             container_type: self.container_type,
@@ -263,7 +263,7 @@ impl Menu {
         self.refresh_contents(player);
     }
 
-    pub fn refresh_contents(&mut self, player: &mut ConnectedPlayer) {
+    pub fn refresh_contents(&self, player: &mut ConnectedPlayer) {
         let mut total_items = Vec::<Option<ItemStack>>::with_capacity(self.items.len() * 9);
         for y in 0..self.rows as usize {
             for x in 0..9 {
@@ -279,7 +279,7 @@ impl Menu {
         });
     }
 
-    pub fn get_clicker(&mut self, state_id: i32, slot: u16) -> Option<ClickHandler> {
+    pub fn get_clicker(&self, state_id: i32, slot: u16) -> Option<ClickHandler> {
         if self.state_lock > state_id {
             return None;
         }
@@ -303,7 +303,7 @@ impl Menu {
         })
     }
 
-    pub fn close(&mut self, player: &mut ConnectedPlayer) {
+    pub fn close(&self, player: &mut ConnectedPlayer) {
         player.write_owned_packet(ClientboundPlayRegistry::ContainerClose {
             container_id: self.container_id,
         });
@@ -342,7 +342,7 @@ impl Menu {
         changed
     }
 
-    pub async fn set_item(
+    pub fn set_item(
         &mut self,
         to: &mut ConnectedPlayer,
         slot_x: usize,
