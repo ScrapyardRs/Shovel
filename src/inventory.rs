@@ -248,10 +248,8 @@ pub struct Menu {
 }
 
 impl Menu {
-    pub fn next_state_lock(&mut self) -> i32 {
-        let temp = self.state_lock;
+    pub fn incr_state_lock(&mut self) {
         self.state_lock += 1;
-        temp
     }
 
     pub fn send_to_player(&self, player: &mut ConnectedPlayer) {
@@ -322,7 +320,10 @@ impl Menu {
         for (i, item) in items.iter().enumerate() {
             if self.items[i].item.ne(&item.item) {
                 self.items[i] = item.clone();
-                changed = true;
+                if !changed {
+                    self.incr_state_lock();
+                    changed = true;
+                }
             }
         }
         changed
@@ -337,6 +338,7 @@ impl Menu {
         let idx = (slot_y * 9) + slot_x;
         let changed = self.items[idx].item.eq(&item);
         if changed {
+            self.incr_state_lock();
             self.items[idx].item = item;
         }
         changed
@@ -357,7 +359,7 @@ impl Menu {
 
         to.write_owned_packet(ContainerSetSlot {
             container_id: self.container_id,
-            state_id: self.next_state_lock(),
+            state_id: self.state_lock,
             slot: ((slot_y * 9) + slot_x) as u16,
             item: self.items[(slot_y * 9) + slot_x].item.as_ref().cloned(),
         });
