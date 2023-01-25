@@ -206,9 +206,10 @@ pub enum ClickWith {
     Right,
 }
 
-pub struct ClickContext<'a> {
+pub struct ClickContext<'a, C> {
+    pub extra: &'a mut C,
     pub player: &'a mut ConnectedPlayer,
-    pub menu_ref: &'a mut Menu,
+    pub menu_ref: &'a mut Menu<C>,
     pub click_type: ClickType,
     pub click_with: ClickWith,
     pub slot: u16,
@@ -216,15 +217,23 @@ pub struct ClickContext<'a> {
     pub carried_item: Option<ItemStack>,
 }
 
-pub type ClickHandler = fn(ClickContext);
+pub type ClickHandler<C> = fn(ClickContext<C>);
 
-#[derive(Clone)]
-pub struct MenuItem {
+pub struct MenuItem<C> {
     pub item: Option<ItemStack>,
-    pub action: Option<ClickHandler>,
+    pub action: Option<ClickHandler<C>>,
 }
 
-impl MenuItem {
+impl<C> Clone for MenuItem<C> {
+    fn clone(&self) -> Self {
+        MenuItem {
+            item: self.item.as_ref().cloned(),
+            action: self.action,
+        }
+    }
+}
+
+impl<C> MenuItem<C> {
     pub fn empty() -> Self {
         Self {
             item: None,
@@ -239,7 +248,7 @@ impl MenuItem {
         }
     }
 
-    pub fn full(item: ItemStack, action: ClickHandler) -> Self {
+    pub fn full(item: ItemStack, action: ClickHandler<C>) -> Self {
         Self {
             item: Some(item),
             action: Some(action),
@@ -247,16 +256,16 @@ impl MenuItem {
     }
 }
 
-pub struct Menu {
+pub struct Menu<C> {
     title: Chat,
     rows: u8,
     container_id: u8,
     container_type: MenuType,
-    items: Vec<MenuItem>,
+    items: Vec<MenuItem<C>>,
     state_lock: i32,
 }
 
-impl Menu {
+impl<C> Menu<C> {
     pub fn incr_state_lock(&mut self) {
         self.state_lock += 1;
     }
@@ -286,7 +295,7 @@ impl Menu {
         });
     }
 
-    pub fn get_clicker(&self, state_id: i32, slot: u16) -> Option<ClickHandler> {
+    pub fn get_clicker(&self, state_id: i32, slot: u16) -> Option<ClickHandler<C>> {
         if self.state_lock > state_id {
             return None;
         }
@@ -316,7 +325,7 @@ impl Menu {
         });
     }
 
-    pub fn set_click_handler(&mut self, slot_x: usize, slot_y: usize, handler: ClickHandler) {
+    pub fn set_click_handler(&mut self, slot_x: usize, slot_y: usize, handler: ClickHandler<C>) {
         self.items[(slot_y * 9) + slot_x].action = Some(handler);
     }
 
@@ -324,7 +333,7 @@ impl Menu {
         self.items[(slot_y * 9) + slot_x].action = None;
     }
 
-    pub fn set_items_unaware(&mut self, items: &[MenuItem]) -> bool {
+    pub fn set_items_unaware(&mut self, items: &[MenuItem<C>]) -> bool {
         let mut changed = false;
         for (i, item) in items.iter().enumerate() {
             if self.items[i].item.ne(&item.item) {
@@ -376,7 +385,7 @@ impl Menu {
         true
     }
 
-    pub fn from_rows<C: Into<Chat>>(title: C, rows: u8) -> Self {
+    pub fn from_rows<Ch: Into<Chat>>(title: Ch, rows: u8) -> Self {
         let container_type = match rows {
             1 => MenuType::Generic9x1,
             2 => MenuType::Generic9x2,
