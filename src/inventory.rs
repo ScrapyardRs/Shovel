@@ -44,6 +44,15 @@ impl PlayerInventory {
         self.state_id
     }
 
+    pub fn clear(&mut self) -> ClientboundPlayRegistry {
+        self.crafting_output = None;
+        self.crafting_slots = [none_arr!(2), none_arr!(2)];
+        self.inventory_slots = [none_arr!(9), none_arr!(9), none_arr!(9), none_arr!(9)];
+        self.equipment_slots = none_arr!(4);
+        self.offhand_slot = None;
+        self.refresh()
+    }
+
     pub fn refresh(&mut self) -> ClientboundPlayRegistry {
         let next_state_id = self.current_state_id();
 
@@ -77,14 +86,14 @@ impl PlayerInventory {
         }
     }
 
-    pub fn set_player_inventory(&mut self, items: &[Option<ItemStack>]) -> ClientboundPlayRegistry {
+    pub fn set_all(&mut self, items: &[Option<ItemStack>]) -> ClientboundPlayRegistry {
         for (i, item) in items.iter().enumerate() {
             self.inventory_slots[i / 9][i % 9] = item.as_ref().cloned();
         }
         self.refresh()
     }
 
-    pub fn set_player_inventory_slot(
+    pub fn set(
         &mut self,
         item: Option<ItemStack>,
         slot_x: usize,

@@ -9,7 +9,7 @@ use mcprotocol::clientbound::play::ClientboundPlayRegistry::Disconnect;
 use mcprotocol::clientbound::play::{ClientboundPlayRegistry, LevelChunkData, RelativeArgument};
 use mcprotocol::common::chat::Chat;
 use mcprotocol::common::chunk::Chunk;
-use mcprotocol::common::play::{GlobalPos, Location};
+use mcprotocol::common::play::{GlobalPos, ItemStack, Location};
 use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -293,5 +293,73 @@ impl ConnectedPlayer {
                 f64::floor(self.position.inner_loc.z) as i32 >> 4,
             );
         }
+    }
+
+    // inventory stuff
+    pub fn clear_inventory(&mut self) {
+        let forward = self.player_inventory_mut().clear();
+        self.write_owned_packet(forward);
+    }
+
+    pub fn refresh_player_inventory(&mut self) {
+        let forward = self.player_inventory_mut().refresh();
+        self.write_owned_packet(forward);
+    }
+
+    pub fn set_player_inventory(&mut self, items: &[Option<ItemStack>]) {
+        let forward = self.player_inventory_mut().set_all(items);
+        self.write_owned_packet(forward);
+    }
+
+    pub fn set_player_inventory_slot(
+        &mut self,
+        item: Option<ItemStack>,
+        slot_x: usize,
+        slot_y: usize,
+    ) {
+        let forward = self.player_inventory_mut().set(item, slot_x, slot_y);
+        self.write_owned_packet(forward);
+    }
+
+    pub fn set_head(&mut self, item: Option<ItemStack>) {
+        let forward = self.player_inventory_mut().set_head(item);
+        self.write_owned_packet(forward);
+    }
+
+    pub fn set_chest(&mut self, item: Option<ItemStack>) {
+        let forward = self.player_inventory_mut().set_chest(item);
+        self.write_owned_packet(forward);
+    }
+
+    pub fn set_legs(&mut self, item: Option<ItemStack>) {
+        let forward = self.player_inventory_mut().set_legs(item);
+        self.write_owned_packet(forward);
+    }
+
+    pub fn set_feet(&mut self, item: Option<ItemStack>) {
+        let forward = self.player_inventory_mut().set_feet(item);
+        self.write_owned_packet(forward);
+    }
+
+    pub fn set_offhand(&mut self, item: Option<ItemStack>) {
+        let forward = self.player_inventory_mut().set_offhand(item);
+        self.write_owned_packet(forward);
+    }
+
+    pub fn set_crafting_output(&mut self, item: Option<ItemStack>) {
+        let forward = self.player_inventory_mut().set_crafting_output(item);
+        self.write_owned_packet(forward);
+    }
+
+    pub fn set_crafting_slot(&mut self, item: Option<ItemStack>, slot_x: usize, slot_y: usize) {
+        let forward = self
+            .player_inventory_mut()
+            .set_crafting_slot(item, slot_x, slot_y);
+        self.write_owned_packet(forward);
+    }
+
+    pub fn set_current_slot(&mut self, slot: u8) {
+        let forward = self.player_inventory_mut().set_current_slot(slot);
+        self.write_owned_packet(forward);
     }
 }
