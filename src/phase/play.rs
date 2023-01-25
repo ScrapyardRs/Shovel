@@ -69,6 +69,10 @@ impl PacketLocker {
         self
     }
 
+    pub fn clone_writer(&self) -> PacketSend {
+        self.send.clone()
+    }
+
     pub fn next_packet(&mut self) -> Option<ServerboundPlayRegistry> {
         if !self.active {
             return None;
