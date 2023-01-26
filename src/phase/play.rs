@@ -135,17 +135,19 @@ impl ChunkPositionLoader {
             if !self.pending_chunk_removals.remove(&(x, z)) {
                 log::debug!("Client now knows chunk at {}, {}", x, z);
                 self.known_chunks.insert((x, z));
-                me.write_owned_packet(ClientboundPlayRegistry::LevelChunkWithLight {
-                    chunk_data: LevelChunkData {
-                        chunk: level.clone_cached(x, z),
-                        block_entities: vec![],
-                    },
-                    light_data: empty_light_data!(),
-                })
             }
+            log::debug!("Sending chunk packet for {}, {}", x, z);
+            me.write_owned_packet(ClientboundPlayRegistry::LevelChunkWithLight {
+                chunk_data: LevelChunkData {
+                    chunk: level.clone_cached(x, z),
+                    block_entities: vec![],
+                },
+                light_data: empty_light_data!(),
+            })
         }
 
         for (x, z) in self.pending_chunk_removals.drain() {
+            log::info!("Forgetting chunk at {}, {}", x, z);
             me.write_owned_packet(ClientboundPlayRegistry::ForgetLevelChunk { x, z });
         }
 
