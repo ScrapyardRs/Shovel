@@ -130,10 +130,6 @@ impl ChunkPositionLoader {
             let x = center_x + ox;
             let z = center_z + oz;
 
-            if let Some(pending_removals) = &mut self.pending_chunk_removals {
-                pending_removals.remove(&(x, z));
-            }
-
             if self.known_chunks.contains(&(x, z)) {
                 continue;
             }
@@ -152,6 +148,7 @@ impl ChunkPositionLoader {
     pub fn poll_removals(&mut self, me: &mut PacketLocker) {
         if let Some(removals) = self.pending_chunk_removals.take() {
             for (x, z) in removals {
+                self.known_chunks.remove(&(x, z));
                 log::info!("Forgetting chunk at {}, {}", x, z);
                 me.write_owned_packet(ClientboundPlayRegistry::ForgetLevelChunk { x, z });
             }
