@@ -53,7 +53,7 @@ impl PlayerInventory {
         self.refresh()
     }
 
-    pub fn refresh(&mut self) -> ClientboundPlayRegistry {
+    pub fn refresh(&self) -> ClientboundPlayRegistry {
         let next_state_id = self.current_state_id();
 
         let mut items = Vec::with_capacity(46);
