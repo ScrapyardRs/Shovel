@@ -3,6 +3,12 @@
 #![feature(int_roundings)]
 #![feature(variant_count)]
 #![feature(once_cell)]
+#![feature(const_for)]
+#![feature(generic_const_exprs)]
+#![feature(const_trait_impl)]
+#![feature(const_mut_refs)]
+#![feature(const_intoiterator_identity)]
+#![feature(const_swap)]
 
 use mcprotocol::clientbound::play::ClientboundPlayRegistry;
 use mcprotocol::common::registry::GlobalRegistry;

@@ -106,6 +106,38 @@ impl PacketLocker {
     }
 }
 
+pub struct ChunkPositionLoader {
+    pub(crate) last_pos: (i32, i32),
+    pub(crate) chunk_radius: i32,
+    pub(crate) known_chunks: HashSet<(i32, i32)>,
+    pub(crate) pending_chunk_removals: HashSet<(i32, i32)>,
+}
+/*
+
+radius 3
+
+ 3-3  3-2  3-1  30  31  32  33
+ 2-3  2-2  2-1  20  21  22  23
+ 1-3  1-2  1-1  10  11  12  13
+ 0-3  0-2  0-1  00  01  02  03
+-1-3 -1-2 -1-1 -10 -11 -12 -13
+-2-3 -2-2 -2-1 -20 -21 -22 -23
+-3-3 -3-2 -3-1 -30 -31 -32 -33
+
+ */
+
+
+impl ChunkPositionLoader {
+    pub fn poll_radius(&mut self, center_x: i32, center_z: i32) {
+        for ia in 1..=self.chunk_radius {
+            for ib in 1..=self.chunk_radius {
+
+            }
+        }
+        self.last_pos = (center_x, center_z);
+    }
+}
+
 pub struct ConnectedPlayer {
     // conn
     pub packets: PacketLocker,
@@ -371,18 +403,5 @@ impl ConnectedPlayer {
             content: chat.into(),
             overlay: false,
         });
-    }
-
-    pub fn clear_known_chunks(&mut self) {
-        for (x, z) in self.known_chunks.drain().collect::<Vec<_>>() {
-            // if self.position.inner_loc.x as i32 >> 4 == x
-            //     && self.position.inner_loc.z as i32 >> 4 == z
-            // {
-            //     self.known_chunks.remove(&(x, z));
-            //     continue;
-            // }
-            // self.forget_chunk(x, z);
-            self.known_chunks.remove(&(x, z));
-        }
     }
 }
