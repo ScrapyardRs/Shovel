@@ -8,7 +8,7 @@ use drax::prelude::PacketComponent;
 use mcprotocol::clientbound::play::ClientboundPlayRegistry::Disconnect;
 use mcprotocol::clientbound::play::{ClientboundPlayRegistry, LevelChunkData, RelativeArgument};
 use mcprotocol::common::chat::Chat;
-use mcprotocol::common::chunk::CachedLevel;
+use mcprotocol::common::chunk::{CachedLevel, Chunk};
 use mcprotocol::common::play::{GlobalPos, ItemStack, Location};
 use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
@@ -110,13 +110,20 @@ const CHUNK_RADIAL_CACHE: [(i32, i32); 121] = create_sorted_coordinates::<5>();
 
 pub struct ChunkPositionLoader {
     pub(crate) known_chunks: HashSet<(i32, i32)>,
-    pub(crate) pending_chunk_removals: Option<HashSet<(i32, i32)>>,
 }
 
 impl ChunkPositionLoader {
-    pub fn soft_clear(&mut self) {
-        self.pending_chunk_removals = Some(self.known_chunks.clone());
-        self.known_chunks = HashSet::new();
+    pub fn soft_clear(&mut self, me: &mut PacketLocker) {
+        let chunk = Chunk::new(0, 0);
+        for (x, z) in self.known_chunks.drain() {
+            me.write_owned_packet(ClientboundPlayRegistry::LevelChunkWithLight {
+                chunk_data: LevelChunkData {
+                    chunk: chunk.clone_for(x, z),
+                    block_entities: vec![],
+                },
+                light_data: empty_light_data!(),
+            })
+        }
     }
 
     pub fn poll_radius(
