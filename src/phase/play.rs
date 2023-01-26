@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 use std::io::Cursor;
+use std::mem::swap;
 use std::sync::atomic::AtomicI32;
 use std::sync::Arc;
 
@@ -110,12 +111,20 @@ const CHUNK_RADIAL_CACHE: [(i32, i32); 121] = create_sorted_coordinates::<5>();
 
 pub struct ChunkPositionLoader {
     pub(crate) known_chunks: HashSet<(i32, i32)>,
+    pub(crate) pending_removals: HashSet<(i32, i32)>,
 }
 
 impl ChunkPositionLoader {
-    pub fn soft_clear(&mut self, me: &mut PacketLocker) {
+    pub fn soft_clear(&mut self) {
+        if !self.pending_removals.is_empty() {
+            self.pending_removals.clear();
+        }
+        swap(&mut self.known_chunks, &mut self.pending_removals);
+    }
+
+    pub fn poll_removals(&mut self, me: &mut PacketLocker) {
         let chunk = Chunk::new(0, 0);
-        for (x, z) in self.known_chunks.drain() {
+        for (x, z) in self.pending_removals.drain() {
             me.write_owned_packet(ClientboundPlayRegistry::LevelChunkWithLight {
                 chunk_data: LevelChunkData {
                     chunk: chunk.clone_for(x, z),
@@ -137,6 +146,8 @@ impl ChunkPositionLoader {
             let x = center_x + ox;
             let z = center_z + oz;
 
+            self.pending_removals.remove(&(x, z));
+
             if self.known_chunks.contains(&(x, z)) {
                 continue;
             }
@@ -149,6 +160,8 @@ impl ChunkPositionLoader {
                 light_data: empty_light_data!(),
             })
         }
+
+        self.poll_removals(me);
         true
     }
 }
@@ -307,7 +320,7 @@ impl ConnectedPlayer {
     }
 
     pub fn clear_level(&mut self) {
-        self.chunk_loader.soft_clear(&mut self.packets);
+        self.chunk_loader.soft_clear();
     }
 
     pub async fn render_level(&mut self, level: &CachedLevel) {
