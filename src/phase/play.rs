@@ -133,6 +133,7 @@ impl ChunkPositionLoader {
                 continue;
             }
             if !self.pending_chunk_removals.remove(&(x, z)) {
+                log::debug!("Client now knows chunk at {}, {}", x, z);
                 self.known_chunks.insert((x, z));
                 me.write_owned_packet(ClientboundPlayRegistry::LevelChunkWithLight {
                     chunk_data: LevelChunkData {
