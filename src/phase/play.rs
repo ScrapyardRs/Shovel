@@ -107,7 +107,7 @@ impl PacketLocker {
     }
 }
 
-const CHUNK_RADIAL_CACHE: [(i32, i32); 121] = create_sorted_coordinates::<5>();
+const CHUNK_RADIAL_CACHE: [(i32, i32); 225] = create_sorted_coordinates::<7>();
 
 pub struct ChunkPositionLoader {
     pub(crate) known_chunks: HashSet<(i32, i32)>,
@@ -161,7 +161,7 @@ impl ChunkPositionLoader {
                 light_data: empty_light_data!(),
             });
             sent_chunks_this_tick += 1;
-            if sent_chunks_this_tick == 9 {
+            if sent_chunks_this_tick == 3 {
                 return true;
             }
         }
