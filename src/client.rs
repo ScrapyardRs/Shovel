@@ -21,7 +21,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use crate::phase::play::{ClientLoginProperties, ConnectedPlayer, PacketLocker};
+use crate::phase::play::{ChunkPositionLoader, ClientLoginProperties, ConnectedPlayer, PacketLocker};
 use crate::phase::ConnectionInformation;
 use crate::server::RawConnection;
 
@@ -421,7 +421,10 @@ impl ProcessedPlayer {
             on_ground: false,
             pending_position: self.pending_position.clone(),
             teleport_id_incr: AtomicI32::new(1),
-            known_chunks: Default::default(),
+            chunk_loader: ChunkPositionLoader {
+                known_chunks: Default::default(),
+                pending_chunk_removals: Default::default(),
+            },
             player_inventory: Default::default(),
         };
 

@@ -109,7 +109,6 @@ impl PacketLocker {
 const CHUNK_RADIAL_CACHE: [(i32, i32); 121] = create_sorted_coordinates::<5>();
 
 pub struct ChunkPositionLoader {
-    pub(crate) last_pos: (i32, i32),
     pub(crate) known_chunks: HashSet<(i32, i32)>,
     pub(crate) pending_chunk_removals: HashSet<(i32, i32)>,
 }
@@ -150,7 +149,6 @@ impl ChunkPositionLoader {
         }
 
         self.pending_chunk_removals = self.known_chunks.clone();
-        self.last_pos = (center_x, center_z);
         true
     }
 }
