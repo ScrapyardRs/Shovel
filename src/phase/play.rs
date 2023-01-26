@@ -130,6 +130,7 @@ impl ChunkPositionLoader {
             let x = center_x + ox;
             let z = center_z + oz;
             if self.known_chunks.contains(&(x, z)) {
+                self.pending_chunk_removals.remove(&(x, z));
                 continue;
             }
             if !self.pending_chunk_removals.remove(&(x, z)) {
