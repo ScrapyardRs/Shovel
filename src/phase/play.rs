@@ -185,7 +185,7 @@ pub struct ConnectedPlayer {
     pub(crate) teleport_id_incr: AtomicI32,
     // level information
     pub chunk_loader: ChunkPositionLoader,
-    pub(crate) chunk_poller_broke_early: bool,
+    pub(crate) chunk_poller_broke_early: u8,
     // inventory
     pub(crate) player_inventory: PlayerInventory,
 }
@@ -331,13 +331,19 @@ impl ConnectedPlayer {
 
     pub async fn render_level(&mut self, level: &CachedLevel) {
         let chunk_changed = self.update_location().await;
-        if chunk_changed || self.chunk_poller_broke_early {
-            self.chunk_poller_broke_early = self.chunk_loader.poll_radius(
+        if chunk_changed && self.chunk_poller_broke_early == 2 {
+            self.chunk_poller_broke_early = if self.chunk_loader.poll_radius(
                 f64::floor(self.position.inner_loc.x) as i32 >> 4,
                 f64::floor(self.position.inner_loc.z) as i32 >> 4,
                 &mut self.packets,
                 level,
-            );
+            ) {
+                1
+            } else {
+                0
+            };
+        } else if self.chunk_poller_broke_early == 1 {
+            self.chunk_poller_broke_early = 2;
         }
     }
 
