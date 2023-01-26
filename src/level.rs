@@ -24,7 +24,7 @@ macro_rules! empty_light_data {
 
 pub struct PlayerLevel {
     poll_radius: i32,
-    cached_level: CachedLevel,
+    pub cached_level: CachedLevel,
 }
 
 impl PlayerLevel {
