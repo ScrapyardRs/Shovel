@@ -306,6 +306,10 @@ impl ConnectedPlayer {
         self.chunk_loader.known_chunks.contains(&(chunk_x, chunk_z))
     }
 
+    pub fn clear_level(&mut self) {
+        self.chunk_loader.soft_clear(&mut self.packets);
+    }
+
     pub async fn render_level(&mut self, level: &CachedLevel) {
         let chunk_changed = self.update_location().await;
         if chunk_changed {
