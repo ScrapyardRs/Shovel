@@ -110,13 +110,13 @@ const CHUNK_RADIAL_CACHE: [(i32, i32); 121] = create_sorted_coordinates::<5>();
 
 pub struct ChunkPositionLoader {
     pub(crate) known_chunks: HashSet<(i32, i32)>,
-    pub(crate) pending_chunk_removals: HashSet<(i32, i32)>,
+    pub(crate) pending_chunk_removals: Option<HashSet<(i32, i32)>>,
 }
 
 impl ChunkPositionLoader {
     pub fn soft_clear(&mut self) {
-        self.known_chunks.clear();
-        self.pending_chunk_removals.clear();
+        self.pending_chunk_removals = Some(self.known_chunks.clone());
+        self.known_chunks = HashSet::new();
     }
 
     pub fn poll_radius(
@@ -129,15 +129,15 @@ impl ChunkPositionLoader {
         for (ox, oz) in CHUNK_RADIAL_CACHE {
             let x = center_x + ox;
             let z = center_z + oz;
+
+            if let Some(pending_removals) = &mut self.pending_chunk_removals {
+                pending_removals.remove(&(x, z));
+            }
+
             if self.known_chunks.contains(&(x, z)) {
-                self.pending_chunk_removals.remove(&(x, z));
                 continue;
             }
-            if !self.pending_chunk_removals.remove(&(x, z)) {
-                log::debug!("Client now knows chunk at {}, {}", x, z);
-                self.known_chunks.insert((x, z));
-            }
-            log::debug!("Sending chunk packet for {}, {}", x, z);
+            self.known_chunks.insert((x, z));
             me.write_owned_packet(ClientboundPlayRegistry::LevelChunkWithLight {
                 chunk_data: LevelChunkData {
                     chunk: level.clone_cached(x, z),
@@ -146,14 +146,16 @@ impl ChunkPositionLoader {
                 light_data: empty_light_data!(),
             })
         }
-
-        for (x, z) in self.pending_chunk_removals.drain() {
-            log::info!("Forgetting chunk at {}, {}", x, z);
-            me.write_owned_packet(ClientboundPlayRegistry::ForgetLevelChunk { x, z });
-        }
-
-        self.pending_chunk_removals = self.known_chunks.clone();
         true
+    }
+
+    pub fn poll_removals(&mut self, me: &mut PacketLocker) {
+        if let Some(removals) = self.pending_chunk_removals.take() {
+            for (x, z) in removals {
+                log::info!("Forgetting chunk at {}, {}", x, z);
+                me.write_owned_packet(ClientboundPlayRegistry::ForgetLevelChunk { x, z });
+            }
+        }
     }
 }
 
@@ -291,6 +293,7 @@ impl ConnectedPlayer {
         let pending = pending_position.location;
         drop(pending_position);
         if !self.is_position_loaded {
+            self.chunk_loader.poll_removals(&mut self.packets);
             self.is_position_loaded = true;
         }
 
