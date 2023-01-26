@@ -381,7 +381,8 @@ impl ConnectedPlayer {
             //     self.known_chunks.remove(&(x, z));
             //     continue;
             // }
-            self.forget_chunk(x, z);
+            // self.forget_chunk(x, z);
+            self.known_chunks.remove(&(x, z));
         }
     }
 }
