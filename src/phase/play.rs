@@ -202,6 +202,7 @@ impl ConnectedPlayer {
             pending.is_loaded = false;
         }
         drop(pending);
+        self.position = location.clone();
         self.packets
             .write_owned_packet(ClientboundPlayRegistry::PlayerPosition {
                 location,
