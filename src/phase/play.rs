@@ -141,7 +141,7 @@ impl ChunkPositionLoader {
         center_z: i32,
         me: &mut PacketLocker,
         level: &CachedLevel,
-    ) {
+    ) -> bool {
         let mut sent_chunks_this_tick = 0;
         for (ox, oz) in CHUNK_RADIAL_CACHE {
             let x = center_x + ox;
@@ -162,11 +162,12 @@ impl ChunkPositionLoader {
             });
             sent_chunks_this_tick += 1;
             if sent_chunks_this_tick == 25 {
-                break;
+                return true;
             }
         }
 
         self.poll_removals(me);
+        false
     }
 }
 
@@ -184,6 +185,7 @@ pub struct ConnectedPlayer {
     pub(crate) teleport_id_incr: AtomicI32,
     // level information
     pub chunk_loader: ChunkPositionLoader,
+    pub(crate) chunk_poller_broke_early: bool,
     // inventory
     pub(crate) player_inventory: PlayerInventory,
 }
@@ -329,8 +331,8 @@ impl ConnectedPlayer {
 
     pub async fn render_level(&mut self, level: &CachedLevel) {
         let chunk_changed = self.update_location().await;
-        if chunk_changed {
-            self.chunk_loader.poll_radius(
+        if chunk_changed || self.chunk_poller_broke_early {
+            self.chunk_poller_broke_early = self.chunk_loader.poll_radius(
                 f64::floor(self.position.inner_loc.x) as i32 >> 4,
                 f64::floor(self.position.inner_loc.z) as i32 >> 4,
                 &mut self.packets,
