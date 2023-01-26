@@ -144,16 +144,6 @@ impl ChunkPositionLoader {
         }
         true
     }
-
-    pub fn poll_removals(&mut self, me: &mut PacketLocker) {
-        if let Some(removals) = self.pending_chunk_removals.take() {
-            for (x, z) in removals {
-                self.known_chunks.remove(&(x, z));
-                log::info!("Forgetting chunk at {}, {}", x, z);
-                me.write_owned_packet(ClientboundPlayRegistry::ForgetLevelChunk { x, z });
-            }
-        }
-    }
 }
 
 pub struct ConnectedPlayer {
@@ -290,7 +280,6 @@ impl ConnectedPlayer {
         let pending = pending_position.location;
         drop(pending_position);
         if !self.is_position_loaded {
-            self.chunk_loader.poll_removals(&mut self.packets);
             self.is_position_loaded = true;
         }
 
