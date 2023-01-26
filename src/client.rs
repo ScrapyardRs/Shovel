@@ -420,7 +420,7 @@ impl ProcessedPlayer {
             position: self.current_player_position,
             on_ground: false,
             pending_position: self.pending_position.clone(),
-            teleport_id_incr: AtomicI32::new(0),
+            teleport_id_incr: AtomicI32::new(1),
             known_chunks: Default::default(),
             player_inventory: Default::default(),
         };

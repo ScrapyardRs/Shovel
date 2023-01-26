@@ -274,9 +274,6 @@ impl EntityTracker {
 
     pub fn remove_entity(&mut self, uuid: Uuid) {
         if let Some(removed) = self.entities.remove(&uuid) {
-            self.removed_entities_since_last_tick
-                .push(removed.entity_id_ref);
-
             // remove current & any lingering entities from the player
             if let TrackingState::WaitingForPlayers { packet_sender }
             | TrackingState::Active { packet_sender } = removed.state
@@ -288,6 +285,9 @@ impl EntityTracker {
                 };
                 let _ = packet_sender.send(Arc::new(remove_packet));
             }
+
+            self.removed_entities_since_last_tick
+                .push(removed.entity_id_ref);
         }
     }
 

@@ -375,12 +375,12 @@ impl ConnectedPlayer {
 
     pub fn clear_known_chunks(&mut self) {
         for (x, z) in self.known_chunks.drain().collect::<Vec<_>>() {
-            if self.position.inner_loc.x as i32 >> 4 == x
-                && self.position.inner_loc.z as i32 >> 4 == z
-            {
-                self.known_chunks.remove(&(x, z));
-                continue;
-            }
+            // if self.position.inner_loc.x as i32 >> 4 == x
+            //     && self.position.inner_loc.z as i32 >> 4 == z
+            // {
+            //     self.known_chunks.remove(&(x, z));
+            //     continue;
+            // }
             self.forget_chunk(x, z);
         }
     }
