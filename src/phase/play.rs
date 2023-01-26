@@ -371,4 +371,10 @@ impl ConnectedPlayer {
             overlay: false,
         });
     }
+
+    pub fn clear_known_chunks(&mut self) {
+        for (x, z) in self.known_chunks.drain().collect::<Vec<_>>() {
+            self.forget_chunk(x, z);
+        }
+    }
 }
