@@ -107,7 +107,7 @@ impl PacketLocker {
     }
 }
 
-const CHUNK_RADIAL_CACHE: [(i32, i32); 121] = create_sorted_coordinates::<5>();
+const CHUNK_RADIAL_CACHE: [(i32, i32); 289] = create_sorted_coordinates::<8>();
 
 pub struct ChunkPositionLoader {
     pub(crate) known_chunks: HashSet<(i32, i32)>,
@@ -141,7 +141,8 @@ impl ChunkPositionLoader {
         center_z: i32,
         me: &mut PacketLocker,
         level: &CachedLevel,
-    ) -> bool {
+    ) {
+        let mut sent_chunks_this_tick = 0;
         for (ox, oz) in CHUNK_RADIAL_CACHE {
             let x = center_x + ox;
             let z = center_z + oz;
@@ -158,11 +159,14 @@ impl ChunkPositionLoader {
                     block_entities: vec![],
                 },
                 light_data: empty_light_data!(),
-            })
+            });
+            sent_chunks_this_tick += 1;
+            if sent_chunks_this_tick == 25 {
+                break;
+            }
         }
 
         self.poll_removals(me);
-        true
     }
 }
 
