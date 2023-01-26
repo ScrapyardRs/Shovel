@@ -10,10 +10,10 @@ use drax::{throw_explain, PinnedLivelyResult};
 use mcprotocol::clientbound::login::ClientboundLoginRegistry::{
     LoginCompression, LoginGameProfile,
 };
+use mcprotocol::clientbound::play::ClientboundPlayRegistry;
 use mcprotocol::clientbound::play::ClientboundPlayRegistry::{
-    ClientLogin, CustomPayload, KeepAlive, PlayerPosition, SetDefaultSpawnPosition,
+    ClientLogin, CustomPayload, KeepAlive, SetDefaultSpawnPosition,
 };
-use mcprotocol::clientbound::play::{ClientboundPlayRegistry, RelativeArgument};
 use mcprotocol::common::play::{BlockPos, Location, SimpleLocation};
 use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
@@ -21,7 +21,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
-use crate::phase::play::{ChunkPositionLoader, ClientLoginProperties, ConnectedPlayer, PacketLocker};
+use crate::phase::play::{
+    ChunkPositionLoader, ClientLoginProperties, ConnectedPlayer, PacketLocker,
+};
 use crate::phase::ConnectionInformation;
 use crate::server::RawConnection;
 
@@ -306,7 +308,6 @@ impl ProcessedPlayer {
     pub async fn send_client_login<S: Into<String>>(
         &mut self,
         brand: S,
-        arguments: RelativeArgument,
         properties: ClientLoginProperties,
     ) -> drax::prelude::Result<()> {
         let ClientLoginProperties {
@@ -376,18 +377,6 @@ impl ProcessedPlayer {
                 },
                 angle: 0.0,
             })
-            .await?;
-
-        let position_packet = PlayerPosition {
-            location: self.current_player_position,
-            relative_arguments: arguments,
-            id: self.entity_id,
-            dismount: false,
-        };
-
-        self.server_player
-            .writer
-            .write_play_packet(&position_packet)
             .await
     }
 
@@ -420,7 +409,7 @@ impl ProcessedPlayer {
             position: self.current_player_position,
             on_ground: false,
             pending_position: self.pending_position.clone(),
-            teleport_id_incr: AtomicI32::new(1),
+            teleport_id_incr: AtomicI32::new(0),
             chunk_loader: ChunkPositionLoader {
                 known_chunks: Default::default(),
                 pending_chunk_removals: Default::default(),
