@@ -335,7 +335,7 @@ impl EntityTracker {
 
         broadcasts.push(ConditionalPacket::Unconditional(
             ClientboundPlayRegistry::RemoveEntities {
-                entity_ids: self.removed_entities_since_last_tick.clone(),
+                entity_ids: self.removed_entities_since_last_tick.drain(..).collect(),
             },
         ));
 
