@@ -185,7 +185,7 @@ pub struct ConnectedPlayer {
     pub(crate) teleport_id_incr: AtomicI32,
     // level information
     pub chunk_loader: ChunkPositionLoader,
-    pub(crate) chunk_poller_broke_early: bool,
+    pub chunk_poller_broke_early: bool,
     // inventory
     pub(crate) player_inventory: PlayerInventory,
 }
