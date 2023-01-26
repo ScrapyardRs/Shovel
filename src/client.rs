@@ -412,6 +412,7 @@ impl ProcessedPlayer {
             teleport_id_incr: AtomicI32::new(0),
             chunk_loader: ChunkPositionLoader {
                 known_chunks: Default::default(),
+                pending_removals: Default::default(),
             },
             player_inventory: Default::default(),
         };
