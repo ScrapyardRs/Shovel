@@ -142,7 +142,6 @@ impl ChunkPositionLoader {
         me: &mut PacketLocker,
         level: &CachedLevel,
     ) -> bool {
-        let mut sent_chunks_this_tick = 0;
         for (ox, oz) in CHUNK_RADIAL_CACHE {
             let x = center_x + ox;
             let z = center_z + oz;
@@ -160,10 +159,7 @@ impl ChunkPositionLoader {
                 },
                 light_data: empty_light_data!(),
             });
-            sent_chunks_this_tick += 1;
-            if sent_chunks_this_tick == 3 {
-                return true;
-            }
+            return true;
         }
 
         self.poll_removals(me);
