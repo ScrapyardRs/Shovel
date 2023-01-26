@@ -5,6 +5,7 @@ use mcprotocol::clientbound::play::{ClientboundPlayRegistry, MenuType};
 use mcprotocol::common::chat::Chat;
 use mcprotocol::common::play::ItemStack;
 use mcprotocol::serverbound::play::{ClickType, ContainerSlot};
+use std::sync::Arc;
 
 use crate::phase::play::ConnectedPlayer;
 
@@ -217,7 +218,7 @@ pub struct ClickContext<'a, C> {
     pub carried_item: Option<ItemStack>,
 }
 
-pub type ClickHandler<C> = fn(ClickContext<C>);
+pub type ClickHandler<C> = Arc<dyn Fn(ClickContext<C>)>;
 
 pub struct MenuItem<C> {
     pub item: Option<ItemStack>,
@@ -228,7 +229,7 @@ impl<C> Clone for MenuItem<C> {
     fn clone(&self) -> Self {
         MenuItem {
             item: self.item.as_ref().cloned(),
-            action: self.action,
+            action: self.action.as_ref().cloned(),
         }
     }
 }
@@ -306,17 +307,17 @@ impl<C> Menu<C> {
                     .action
                     .as_ref()
                     .cloned()
-                    .unwrap_or(|ctx| {
+                    .unwrap_or(Arc::new(|ctx| {
                         ctx.menu_ref.refresh_contents(ctx.player);
-                    }),
+                    })),
             );
         }
 
-        Some(|ctx| {
+        Some(Arc::new(|ctx| {
             ctx.menu_ref.refresh_contents(ctx.player);
             let update_packet = ctx.player.player_inventory_mut().refresh();
             ctx.player.write_owned_packet(update_packet);
-        })
+        }))
     }
 
     pub fn close(&self, player: &mut ConnectedPlayer) {
