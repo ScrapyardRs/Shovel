@@ -207,7 +207,7 @@ pub enum ClickWith {
     Right,
 }
 
-pub struct ClickContext<'a, C> {
+pub struct ClickContext<'a, C: Send + Sync> {
     pub extra: &'a mut C,
     pub player: &'a mut ConnectedPlayer,
     pub menu_ref: &'a mut Menu<C>,
@@ -218,14 +218,14 @@ pub struct ClickContext<'a, C> {
     pub carried_item: Option<ItemStack>,
 }
 
-pub type ClickHandler<C> = Arc<dyn Fn(ClickContext<C>)>;
+pub type ClickHandler<C> = Arc<dyn Fn(ClickContext<C>) + Send + Sync>;
 
-pub struct MenuItem<C> {
+pub struct MenuItem<C: Send + Sync> {
     pub item: Option<ItemStack>,
     pub action: Option<ClickHandler<C>>,
 }
 
-impl<C> Clone for MenuItem<C> {
+impl<C: Send + Sync> Clone for MenuItem<C> {
     fn clone(&self) -> Self {
         MenuItem {
             item: self.item.as_ref().cloned(),
@@ -234,7 +234,7 @@ impl<C> Clone for MenuItem<C> {
     }
 }
 
-impl<C> MenuItem<C> {
+impl<C: Send + Sync> MenuItem<C> {
     pub fn empty() -> Self {
         Self {
             item: None,
@@ -257,7 +257,7 @@ impl<C> MenuItem<C> {
     }
 }
 
-pub struct Menu<C> {
+pub struct Menu<C: Send + Sync> {
     title: Chat,
     rows: u8,
     container_id: u8,
@@ -266,7 +266,7 @@ pub struct Menu<C> {
     state_lock: i32,
 }
 
-impl<C> Menu<C> {
+impl<C: Send + Sync> Menu<C> {
     pub fn incr_state_lock(&mut self) {
         self.state_lock += 1;
     }
