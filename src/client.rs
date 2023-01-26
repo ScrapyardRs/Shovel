@@ -414,7 +414,7 @@ impl ProcessedPlayer {
                 known_chunks: Default::default(),
                 pending_removals: Default::default(),
             },
-            chunk_poller_broke_early: false,
+            chunk_poller_broke_early: 0,
             player_inventory: Default::default(),
         };
 
