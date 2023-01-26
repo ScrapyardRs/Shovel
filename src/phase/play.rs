@@ -8,7 +8,7 @@ use drax::prelude::PacketComponent;
 use mcprotocol::clientbound::play::ClientboundPlayRegistry::Disconnect;
 use mcprotocol::clientbound::play::{ClientboundPlayRegistry, LevelChunkData, RelativeArgument};
 use mcprotocol::common::chat::Chat;
-use mcprotocol::common::chunk::Chunk;
+use mcprotocol::common::chunk::CachedLevel;
 use mcprotocol::common::play::{GlobalPos, ItemStack, Location};
 use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
@@ -20,7 +20,7 @@ use uuid::Uuid;
 use crate::client::PendingPosition;
 use crate::entity::tracking::{EntityPositionTracker, TrackableEntity};
 use crate::inventory::PlayerInventory;
-use crate::level::PlayerLevel;
+use crate::math::create_sorted_coordinates;
 use crate::phase::ConnectionInformation;
 use crate::{empty_light_data, PacketSend};
 
@@ -106,35 +106,52 @@ impl PacketLocker {
     }
 }
 
+const CHUNK_RADIAL_CACHE: [(i32, i32); 121] = create_sorted_coordinates::<5>();
+
 pub struct ChunkPositionLoader {
     pub(crate) last_pos: (i32, i32),
-    pub(crate) chunk_radius: i32,
     pub(crate) known_chunks: HashSet<(i32, i32)>,
     pub(crate) pending_chunk_removals: HashSet<(i32, i32)>,
 }
-/*
-
-radius 3
-
- 3-3  3-2  3-1  30  31  32  33
- 2-3  2-2  2-1  20  21  22  23
- 1-3  1-2  1-1  10  11  12  13
- 0-3  0-2  0-1  00  01  02  03
--1-3 -1-2 -1-1 -10 -11 -12 -13
--2-3 -2-2 -2-1 -20 -21 -22 -23
--3-3 -3-2 -3-1 -30 -31 -32 -33
-
- */
-
 
 impl ChunkPositionLoader {
-    pub fn poll_radius(&mut self, center_x: i32, center_z: i32) {
-        for ia in 1..=self.chunk_radius {
-            for ib in 1..=self.chunk_radius {
+    pub fn soft_clear(&mut self) {
+        self.known_chunks.clear();
+        self.pending_chunk_removals.clear();
+    }
 
+    pub fn poll_radius(
+        &mut self,
+        center_x: i32,
+        center_z: i32,
+        me: &mut PacketLocker,
+        level: &CachedLevel,
+    ) -> bool {
+        for (ox, oz) in CHUNK_RADIAL_CACHE {
+            let x = center_x + ox;
+            let z = center_z + oz;
+            if self.known_chunks.contains(&(x, z)) {
+                continue;
+            }
+            if !self.pending_chunk_removals.remove(&(x, z)) {
+                self.known_chunks.insert((x, z));
+                me.write_owned_packet(ClientboundPlayRegistry::LevelChunkWithLight {
+                    chunk_data: LevelChunkData {
+                        chunk: level.clone_cached(x, z),
+                        block_entities: vec![],
+                    },
+                    light_data: empty_light_data!(),
+                })
             }
         }
+
+        for (x, z) in self.pending_chunk_removals.drain() {
+            me.write_owned_packet(ClientboundPlayRegistry::ForgetLevelChunk { x, z });
+        }
+
+        self.pending_chunk_removals = self.known_chunks.clone();
         self.last_pos = (center_x, center_z);
+        true
     }
 }
 
@@ -151,7 +168,7 @@ pub struct ConnectedPlayer {
     pub(crate) pending_position: Arc<RwLock<PendingPosition>>,
     pub(crate) teleport_id_incr: AtomicI32,
     // level information
-    pub(crate) known_chunks: HashSet<(i32, i32)>,
+    pub chunk_loader: ChunkPositionLoader,
     // inventory
     pub(crate) player_inventory: PlayerInventory,
 }
@@ -267,7 +284,7 @@ impl ConnectedPlayer {
     pub async fn update_location(&mut self) -> bool {
         let pending_position = self.pending_position.read().await;
         if !pending_position.is_loaded {
-            return false;
+            return true;
         }
         let pending = pending_position.location;
         drop(pending_position);
@@ -288,42 +305,17 @@ impl ConnectedPlayer {
     }
 
     pub fn knows_chunk(&self, chunk_x: i32, chunk_z: i32) -> bool {
-        self.known_chunks.contains(&(chunk_x, chunk_z))
+        self.chunk_loader.known_chunks.contains(&(chunk_x, chunk_z))
     }
 
-    pub fn send_chunk(&mut self, chunk: Chunk) {
-        self.known_chunks.insert((chunk.x(), chunk.z()));
-        self.write_packet(Arc::new(ClientboundPlayRegistry::LevelChunkWithLight {
-            chunk_data: LevelChunkData {
-                chunk,
-                block_entities: vec![],
-            },
-            light_data: empty_light_data!(),
-        }));
-    }
-
-    pub fn forget_chunk(&mut self, chunk_x: i32, chunk_z: i32) {
-        self.known_chunks.remove(&(chunk_x, chunk_z));
-        self.write_packet(Arc::new(ClientboundPlayRegistry::ForgetLevelChunk {
-            x: chunk_x,
-            z: chunk_z,
-        }));
-    }
-
-    pub fn update_center_chunk(&mut self, chunk_x: i32, chunk_z: i32) {
-        self.write_packet(Arc::new(ClientboundPlayRegistry::SetChunkCacheCenter {
-            x: chunk_x,
-            z: chunk_z,
-        }));
-    }
-
-    pub async fn render_level(&mut self, level: &PlayerLevel) {
+    pub async fn render_level(&mut self, level: &CachedLevel) {
         let chunk_changed = self.update_location().await;
         if chunk_changed {
-            level.poll_player(self, true);
-            self.update_center_chunk(
+            self.chunk_loader.poll_radius(
                 f64::floor(self.position.inner_loc.x) as i32 >> 4,
                 f64::floor(self.position.inner_loc.z) as i32 >> 4,
+                &mut self.packets,
+                level,
             );
         }
     }
