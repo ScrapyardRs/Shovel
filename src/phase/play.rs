@@ -148,17 +148,21 @@ impl ChunkPositionLoader {
 
             self.pending_removals.remove(&(x, z));
 
-            if self.known_chunks.contains(&(x, z)) {
+            if self.known_chunks.insert((x, z)) {
+                if let Some(chunk) = level.clone_necessary_chunk(x, z) {
+                    me.write_owned_packet(ClientboundPlayRegistry::LevelChunkWithLight {
+                        chunk_data: LevelChunkData {
+                            chunk,
+                            block_entities: vec![],
+                        },
+                        light_data: empty_light_data!(),
+                    });
+                } else {
+                    continue;
+                }
+            } else {
                 continue;
             }
-            self.known_chunks.insert((x, z));
-            me.write_owned_packet(ClientboundPlayRegistry::LevelChunkWithLight {
-                chunk_data: LevelChunkData {
-                    chunk: level.clone_cached(x, z),
-                    block_entities: vec![],
-                },
-                light_data: empty_light_data!(),
-            });
             return true;
         }
 
