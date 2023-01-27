@@ -355,7 +355,7 @@ impl<C: Send + Sync> Menu<C> {
         item: Option<ItemStack>,
     ) -> bool {
         let idx = (slot_y * 9) + slot_x;
-        let changed = self.items[idx].item.eq(&item);
+        let changed = self.items[idx].item.ne(&item);
         if changed {
             self.incr_state_lock();
             self.items[idx].item = item;
