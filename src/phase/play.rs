@@ -142,14 +142,14 @@ impl ChunkPositionLoader {
         me: &mut PacketLocker,
         level: &CachedLevel,
     ) -> bool {
+        let mut chunks_sent = 0;
         for (ox, oz) in CHUNK_RADIAL_CACHE {
             let x = center_x + ox;
             let z = center_z + oz;
-
-            self.pending_removals.remove(&(x, z));
-
             if self.known_chunks.insert((x, z)) {
                 if let Some(chunk) = level.clone_necessary_chunk(x, z) {
+                    log::info!("Drawing chunk at {}, {}", x, z);
+                    self.pending_removals.remove(&(x, z));
                     me.write_owned_packet(ClientboundPlayRegistry::LevelChunkWithLight {
                         chunk_data: LevelChunkData {
                             chunk,
@@ -160,10 +160,12 @@ impl ChunkPositionLoader {
                 } else {
                     continue;
                 }
-            } else {
-                continue;
+
+                chunks_sent += 1;
+                if chunks_sent >= 5 {
+                    return true;
+                }
             }
-            return true;
         }
 
         self.poll_removals(me);
