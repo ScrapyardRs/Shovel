@@ -297,7 +297,7 @@ impl<C: Send + Sync> Menu<C> {
     }
 
     pub fn get_clicker(&self, state_id: i32, slot: u16) -> Option<ClickHandler<C>> {
-        if self.state_lock > state_id {
+        if self.state_lock != state_id {
             return None;
         }
 
