@@ -218,6 +218,12 @@ pub struct ClickContext<'a, C: Send + Sync> {
     pub carried_item: Option<ItemStack>,
 }
 
+impl<'a, C: Send + Sync> ClickContext<'a, C> {
+    pub fn dispose(&mut self) {
+        self.menu_ref.refresh_contents(self.player);
+    }
+}
+
 pub type ClickHandler<C> = Arc<dyn Fn(ClickContext<C>) + Send + Sync>;
 
 pub struct MenuItem<C: Send + Sync> {
