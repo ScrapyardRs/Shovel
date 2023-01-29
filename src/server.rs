@@ -34,11 +34,11 @@ pub trait MCServerStatusBuilder {
 
 impl<F> MCServerStatusBuilder for F
 where
-    F: Fn(usize) -> StatusResponse,
+    F: Fn(isize) -> StatusResponse,
     F: Send + Sync,
 {
     fn build_status(&self, client_count: usize) -> PinnedLivelyResult<StatusResponse> {
-        Box::pin(async move { Ok((self)(client_count)) })
+        Box::pin(async move { Ok((self)(client_count as isize)) })
     }
 }
 
