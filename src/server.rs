@@ -185,7 +185,10 @@ where
             tokio::spawn(async move {
                 let (mut read, write) = stream.into_split();
 
+                log::info!("New client! {:?}", addr);
+
                 let addr = if proxy_protocol {
+                    log::info!("Reading proxy protocol");
                     match parse_proxy_protocol(&mut read).await {
                         Ok(proxy_protocol::ProxyHeader::Version1 { addresses }) => {
                             match addresses {

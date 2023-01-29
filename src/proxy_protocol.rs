@@ -13,11 +13,13 @@ pub async fn parse_proxy_protocol(
     buf: &mut (impl AsyncRead + Unpin),
 ) -> drax::prelude::Result<ProxyHeader> {
     let mut first_bits = [0u8; 6];
+    log::info!("First bits: {:?}", first_bits);
     buf.read_exact(&mut first_bits).await?;
     if first_bits == V1_HEADER_BYTES {
         return parse_v1_protocol(buf).await;
     }
     let mut second_bits = [0u8; 6];
+    log::info!("Second bits: {:?}", first_bits);
     buf.read_exact(&mut second_bits).await?;
     let concat = [first_bits, second_bits].concat();
     if concat == V2_HEADER_BYTES {
@@ -54,8 +56,10 @@ pub async fn parse_v1_protocol(
     buf: &mut (impl AsyncRead + Unpin),
 ) -> drax::prelude::Result<ProxyHeader> {
     let step = buf.read_u8().await?;
+    log::info!("Step: {}", step as char);
     let address_family = match step {
         b'T' => {
+            log::info!("Skipping on T");
             skip!(buf, 2);
             let version = buf.read_u8().await?;
             match version {
@@ -64,7 +68,11 @@ pub async fn parse_v1_protocol(
                 _ => throw_explain!("Invalid address family in proxy protocol; following T."),
             }
         }
-        b'U' => -1,
+        b'U' => {
+            log::info!("Skipping for U");
+            skip!(buf, 6);
+            -1
+        }
         _ => throw_explain!("Invalid address family in proxy protocol."),
     };
 
@@ -92,6 +100,8 @@ pub async fn parse_v1_protocol(
 
     let read = read_to(buf, b' ').await?;
     let destination = std::str::from_utf8(&read)?;
+
+    log::info!("Source: {}, Destination: {}", source, destination);
 
     let (source, destination) =
         match address_family {
