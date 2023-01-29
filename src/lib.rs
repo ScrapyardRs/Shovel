@@ -10,6 +10,7 @@
 #![feature(const_intoiterator_identity)]
 #![feature(const_swap)]
 
+extern crate async_trait;
 extern crate drax;
 
 use std::sync::Arc;
