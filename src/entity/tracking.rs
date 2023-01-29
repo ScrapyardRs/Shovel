@@ -291,44 +291,50 @@ impl EntityTracker {
         }
     }
 
-    pub fn tick<PositionAccessor: Fn(Uuid) -> EntityData>(&mut self, accessor: PositionAccessor) {
+    pub fn tick<PositionAccessor: Fn(Uuid) -> Option<EntityData>>(
+        &mut self,
+        accessor: PositionAccessor,
+    ) {
         let mut broadcasts: Vec<ConditionalPacket<EntityPositionTracker>> = vec![];
 
         for entity in self.entities.values_mut() {
-            let EntityData {
+            if let Some(EntityData {
                 entity_location,
                 entity_on_ground,
-            } = accessor(entity.entity_uuid_ref);
-            let packets = entity.poll_location(entity_location, entity_on_ground);
+            }) = accessor(entity.entity_uuid_ref)
+            {
+                let packets = entity.poll_location(entity_location, entity_on_ground);
 
-            let id = entity.entity_id_ref;
+                let id = entity.entity_id_ref;
 
-            let create_entity_packet = (entity.create_entity_fn)(entity);
+                let create_entity_packet = (entity.create_entity_fn)(entity);
 
-            match entity.state {
-                TrackingState::WaitingForPlayers { .. } | TrackingState::UnknownNonPlayerEntity => {
-                    broadcasts.push(ConditionalPacket::Conditional(
-                        create_entity_packet,
-                        Box::new(move |e| e.entity_id_ref != id),
-                    ));
-                }
-                TrackingState::Active { .. } | TrackingState::KnownNonPlayerEntity => {
-                    broadcasts.push(ConditionalPacket::Conditional(
-                        create_entity_packet,
-                        Box::new(move |e| {
-                            e.entity_id_ref != id
-                                && matches!(e.state, TrackingState::WaitingForPlayers { .. })
-                        }),
-                    ));
-                    broadcasts.extend(packets.into_iter().map(|x| {
-                        ConditionalPacket::<EntityPositionTracker>::Conditional(
-                            x,
+                match entity.state {
+                    TrackingState::WaitingForPlayers { .. }
+                    | TrackingState::UnknownNonPlayerEntity => {
+                        broadcasts.push(ConditionalPacket::Conditional(
+                            create_entity_packet,
+                            Box::new(move |e| e.entity_id_ref != id),
+                        ));
+                    }
+                    TrackingState::Active { .. } | TrackingState::KnownNonPlayerEntity => {
+                        broadcasts.push(ConditionalPacket::Conditional(
+                            create_entity_packet,
                             Box::new(move |e| {
                                 e.entity_id_ref != id
-                                    && matches!(e.state, TrackingState::Active { .. })
+                                    && matches!(e.state, TrackingState::WaitingForPlayers { .. })
                             }),
-                        )
-                    }));
+                        ));
+                        broadcasts.extend(packets.into_iter().map(|x| {
+                            ConditionalPacket::<EntityPositionTracker>::Conditional(
+                                x,
+                                Box::new(move |e| {
+                                    e.entity_id_ref != id
+                                        && matches!(e.state, TrackingState::Active { .. })
+                                }),
+                            )
+                        }));
+                    }
                 }
             }
         }
