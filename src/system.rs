@@ -39,7 +39,6 @@ pub enum TickResult {
     Stop,
 }
 
-#[async_trait::async_trait]
 pub trait System: Sized + Send + Sync + 'static {
     type CreationDetails;
     type SplitOff;

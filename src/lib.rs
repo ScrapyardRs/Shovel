@@ -9,12 +9,12 @@
 #![feature(const_mut_refs)]
 #![feature(const_intoiterator_identity)]
 #![feature(const_swap)]
+#![feature(async_fn_in_trait)]
 
 pub extern crate drax;
 
 use std::sync::Arc;
 
-pub use async_trait::async_trait;
 pub use drax::prelude::{ErrorType, Result, TransportError};
 use mcprotocol::clientbound::play::ClientboundPlayRegistry;
 use tokio::sync::mpsc::UnboundedSender;
