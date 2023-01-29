@@ -124,16 +124,8 @@ pub async fn parse_v1_protocol(
             _ => unreachable!(),
         };
 
-    log::info!("Skipping post dst str.");
-
-    skip!(buf, 1);
-
     let read = read_to(buf, b' ').await?;
     let source_port = std::str::from_utf8(&read)?;
-
-    log::info!("Skipping post source port read.");
-
-    skip!(buf, 1);
 
     let read = read_to(buf, b' ').await?;
     let destination_port = std::str::from_utf8(&read)?;
