@@ -144,7 +144,6 @@ impl ChunkPositionLoader {
             let z = center_z + oz;
             if self.known_chunks.insert((x, z)) {
                 if let Some(chunk) = level.clone_necessary_chunk(x, z) {
-                    log::info!("Drawing chunk at {}, {}", x, z);
                     self.pending_removals.remove(&(x, z));
                     me.write_owned_packet(ClientboundPlayRegistry::LevelChunkWithLight {
                         chunk_data: LevelChunkData {
