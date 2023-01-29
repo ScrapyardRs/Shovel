@@ -10,6 +10,7 @@ use tokio::net::TcpListener;
 
 use crate::client::{MCConnection, ProcessedPlayer};
 use crate::crypto::MCPrivateKey;
+use crate::math::create_sorted_coordinates;
 use crate::phase::process_handshake;
 use crate::phase::status::StatusBuilder;
 
@@ -39,6 +40,7 @@ pub struct MCServer<F> {
     bind: String,
     initial_location: Location,
     compression_threshold: Option<i32>,
+    chunk_radius: i32,
 }
 
 impl MCServer<()> {
@@ -59,6 +61,7 @@ impl MCServer<()> {
                 pitch: 0.0,
             },
             compression_threshold: None,
+            chunk_radius: 8,
         }
     }
 }
@@ -91,6 +94,7 @@ impl<F> MCServer<F> {
             entity_count_locker: self.entity_count_locker,
             initial_location: self.initial_location,
             compression_threshold: self.compression_threshold,
+            chunk_radius: self.chunk_radius,
         }
     }
 
@@ -109,7 +113,13 @@ impl<F> MCServer<F> {
             entity_count_locker: self.entity_count_locker,
             initial_location: self.initial_location,
             compression_threshold: self.compression_threshold,
+            chunk_radius: self.chunk_radius,
         }
+    }
+
+    pub fn chunk_radius(mut self, radius: i32) -> Self {
+        self.chunk_radius = radius;
+        self
     }
 }
 
@@ -130,8 +140,10 @@ where
             bind,
             initial_location,
             compression_threshold,
+            chunk_radius,
         } = self;
 
+        let radial_cache = create_sorted_coordinates(chunk_radius);
         let listener = TcpListener::bind(bind).await?;
 
         loop {
@@ -145,6 +157,7 @@ where
                 .unwrap_or_else(|| throw_explain!("No status builder provided."))?;
             let client_context = client_context.clone();
             let entity_count_locker = entity_count_locker.clone();
+            let radial_cache = radial_cache.clone();
 
             tokio::spawn(async move {
                 let (read, write) = stream.into_split();
@@ -154,6 +167,8 @@ where
                         // new player added
                         client_count.fetch_add(1, Ordering::SeqCst);
                         if let Ok(client) = ProcessedPlayer::bootstrap_client(
+                            chunk_radius,
+                            radial_cache,
                             compression_threshold,
                             client,
                             initial_location,
@@ -241,6 +256,7 @@ macro_rules! spawn_server {
         $(@mc_status $mc_status_builder:expr,)?
         $(@compress $threshold:expr,)?
         $(@initial_location $initial_location:expr,)?
+        $(@chunk_radius $chunk_radius:expr,)?
         $client_context_ident:ident, $client_ident:ident -> {$($client_acceptor_tokens:tt)*}
     ) => {
         $crate::server::MCServer::new()
@@ -249,6 +265,7 @@ macro_rules! spawn_server {
             $(.build_mc_status($mc_status_builder))?
             $(.compression_threshold($threshold))?
             $(.initial_location($initial_location))?
+            $(.chunk_radius($chunk_radius))?
             .spawn($ctx, |$client_context_ident, mut $client_ident| {
                 Box::pin(async move {
                     $($client_acceptor_tokens)*

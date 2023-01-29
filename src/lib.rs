@@ -10,9 +10,12 @@
 #![feature(const_intoiterator_identity)]
 #![feature(const_swap)]
 
-use mcprotocol::clientbound::play::ClientboundPlayRegistry;
-use mcprotocol::common::registry::GlobalRegistry;
+extern crate drax;
+
 use std::sync::Arc;
+
+pub use drax::prelude::{ErrorType, Result, TransportError};
+use mcprotocol::clientbound::play::ClientboundPlayRegistry;
 use tokio::sync::mpsc::UnboundedSender;
 
 #[macro_export]
@@ -30,16 +33,8 @@ pub mod level;
 pub mod math;
 pub mod phase;
 pub mod server;
+pub mod system;
 pub mod tick;
-
-#[macro_export]
-macro_rules! lazy_lock {
-    ($ident:ident -> $ty:ty) => {
-        pub static $ident: std::sync::LazyLock<$ty> = std::sync::LazyLock::new(|| <$ty>::create());
-    };
-}
-
-lazy_lock!(GLOBAL_REGISTRIES -> GlobalRegistry);
 
 pub type PacketSend = UnboundedSender<Arc<ClientboundPlayRegistry>>;
 

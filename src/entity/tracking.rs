@@ -38,7 +38,7 @@ impl EntityPositionTracker {
         create_entity_fn: fn(&EntityPositionTracker) -> ClientboundPlayRegistry,
         initial_state: TrackingState,
     ) -> Self {
-        let y_rot_bits = f32::floor((initial.pitch * 256.0) / 360.0) as i32;
+        let y_rot_bits = f32::floor((initial.yaw * 256.0) / 360.0) as i32;
         Self {
             entity_id_ref: entity,
             entity_uuid_ref: entity_uuid,
@@ -46,7 +46,7 @@ impl EntityPositionTracker {
             tick: 0,
             rot_cache: (
                 y_rot_bits,
-                f32::floor((initial.yaw * 256.0) / 360.0) as i32,
+                f32::floor((initial.pitch * 256.0) / 360.0) as i32,
                 y_rot_bits,
             ),
             was_on_ground: start_on_ground,

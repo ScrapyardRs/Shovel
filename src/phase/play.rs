@@ -10,7 +10,7 @@ use mcprotocol::clientbound::play::ClientboundPlayRegistry::Disconnect;
 use mcprotocol::clientbound::play::{ClientboundPlayRegistry, LevelChunkData, RelativeArgument};
 use mcprotocol::common::chat::Chat;
 use mcprotocol::common::chunk::{CachedLevel, Chunk};
-use mcprotocol::common::play::{GlobalPos, ItemStack, Location};
+use mcprotocol::common::play::{GameType, GlobalPos, ItemStack, Location};
 use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
 use tokio::sync::mpsc::error::TryRecvError;
@@ -21,7 +21,6 @@ use uuid::Uuid;
 use crate::client::PendingPosition;
 use crate::entity::tracking::{EntityPositionTracker, TrackableEntity};
 use crate::inventory::PlayerInventory;
-use crate::math::create_sorted_coordinates;
 use crate::phase::ConnectionInformation;
 use crate::{empty_light_data, PacketSend};
 
@@ -37,11 +36,9 @@ pub async fn get_current_dimension_snapshot() -> drax::prelude::Result<Option<Ta
 
 pub struct ClientLoginProperties {
     pub hardcore: bool,
-    pub game_type: u8,
-    pub previous_game_type: u8,
+    pub game_type: GameType,
     pub seed: u64,
     pub max_players: i32,
-    pub chunk_radius: i32,
     pub simulation_distance: i32,
     pub reduced_debug_info: bool,
     pub show_death_screen: bool,
@@ -107,9 +104,8 @@ impl PacketLocker {
     }
 }
 
-const CHUNK_RADIAL_CACHE: [(i32, i32); 225] = create_sorted_coordinates::<7>();
-
 pub struct ChunkPositionLoader {
+    pub(crate) radial_cache: Arc<Vec<(i32, i32)>>,
     pub(crate) known_chunks: HashSet<(i32, i32)>,
     pub(crate) pending_removals: HashSet<(i32, i32)>,
 }
@@ -143,7 +139,7 @@ impl ChunkPositionLoader {
         level: &CachedLevel,
     ) -> bool {
         let mut chunks_sent = 0;
-        for (ox, oz) in CHUNK_RADIAL_CACHE {
+        for (ox, oz) in self.radial_cache.iter() {
             let x = center_x + ox;
             let z = center_z + oz;
             if self.known_chunks.insert((x, z)) {

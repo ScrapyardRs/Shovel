@@ -3,8 +3,6 @@ use mcprotocol::common::chat::Chat;
 use mcprotocol::common::play::ItemStack;
 use mcprotocol::common::registry::RegistryKey;
 
-use crate::GLOBAL_REGISTRIES;
-
 pub struct ItemBuilder {
     item_type: i32,
     data: i32,
@@ -16,9 +14,8 @@ pub struct ItemBuilder {
 
 impl ItemBuilder {
     pub fn new(item: &str) -> Self {
-        let item_id = *GLOBAL_REGISTRIES.get_id(RegistryKey::Items, item).unwrap();
         Self {
-            item_type: item_id,
+            item_type: RegistryKey::Items.global(item).unwrap(),
             data: 0,
             count: 1,
             display_name: None,

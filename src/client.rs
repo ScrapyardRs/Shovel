@@ -14,7 +14,7 @@ use mcprotocol::clientbound::play::ClientboundPlayRegistry;
 use mcprotocol::clientbound::play::ClientboundPlayRegistry::{
     ClientLogin, CustomPayload, KeepAlive, SetDefaultSpawnPosition,
 };
-use mcprotocol::common::play::{BlockPos, Location, SimpleLocation};
+use mcprotocol::common::play::{BlockPos, GameType, Location, SimpleLocation};
 use mcprotocol::common::GameProfile;
 use mcprotocol::serverbound::play::ServerboundPlayRegistry;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -275,10 +275,14 @@ pub struct ProcessedPlayer {
     pub pending_position: Arc<RwLock<PendingPosition>>,
     pub entity_id: i32,
     pub client_count_ref: Arc<AtomicUsize>,
+    chunk_radius: i32,
+    radial_cache: Arc<Vec<(i32, i32)>>,
 }
 
 impl ProcessedPlayer {
     pub async fn bootstrap_client(
+        chunk_radius: i32,
+        radial_cache: Arc<Vec<(i32, i32)>>,
         compression: Option<i32>,
         mut player: RawConnection,
         initial_position: Location,
@@ -302,6 +306,8 @@ impl ProcessedPlayer {
             })),
             entity_id: player_id,
             client_count_ref: client_count,
+            chunk_radius,
+            radial_cache,
         })
     }
 
@@ -313,10 +319,8 @@ impl ProcessedPlayer {
         let ClientLoginProperties {
             hardcore,
             game_type,
-            previous_game_type,
             seed,
             max_players,
-            chunk_radius,
             simulation_distance,
             reduced_debug_info,
             show_death_screen,
@@ -330,7 +334,7 @@ impl ProcessedPlayer {
                 player_id: self.entity_id,
                 hardcore,
                 game_type,
-                previous_game_type,
+                previous_game_type: GameType::Unset,
                 levels: vec![
                     "minecraft:overworld".to_string(),
                     "minecraft:the_end".to_string(),
@@ -341,7 +345,7 @@ impl ProcessedPlayer {
                 dimension: "minecraft:overworld".to_string(),
                 seed,
                 max_players,
-                chunk_radius,
+                chunk_radius: self.chunk_radius,
                 simulation_distance,
                 reduced_debug_info,
                 show_death_screen,
@@ -411,6 +415,7 @@ impl ProcessedPlayer {
             pending_position: self.pending_position.clone(),
             teleport_id_incr: AtomicI32::new(0),
             chunk_loader: ChunkPositionLoader {
+                radial_cache: self.radial_cache,
                 known_chunks: Default::default(),
                 pending_removals: Default::default(),
             },
