@@ -43,8 +43,8 @@ pub trait System: Sized + Send + Sync + 'static {
     type CreationDetails;
     type SplitOff;
 
-    fn bootstrap(details: Self::CreationDetails) {
-        Self::bootstrap_with_runtime(SystemRuntime::default(), details);
+    fn bootstrap(details: Self::CreationDetails) -> (Self::SplitOff, std::thread::JoinHandle<()>) {
+        Self::bootstrap_with_runtime(SystemRuntime::default(), details)
     }
 
     fn bootstrap_with_runtime(
