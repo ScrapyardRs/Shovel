@@ -39,6 +39,7 @@ pub enum TickResult {
     Stop,
 }
 
+#[async_trait::async_trait]
 pub trait System: Sized + Send + Sync + 'static {
     type CreationDetails;
     type SplitOff;
@@ -59,7 +60,7 @@ pub trait System: Sized + Send + Sync + 'static {
                     .unwrap()
                     .block_on(async move {
                         loop {
-                            if matches!(system.tick(), TickResult::Stop) {
+                            if matches!(system.tick().await, TickResult::Stop) {
                                 break;
                             }
                         }
@@ -71,5 +72,5 @@ pub trait System: Sized + Send + Sync + 'static {
 
     fn create(details: Self::CreationDetails) -> (Self, Self::SplitOff);
 
-    fn tick(&mut self) -> TickResult;
+    async fn tick(&mut self) -> TickResult;
 }
