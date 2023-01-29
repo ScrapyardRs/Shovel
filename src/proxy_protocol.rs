@@ -127,7 +127,9 @@ pub async fn parse_v1_protocol(
     let read = read_to(buf, b' ').await?;
     let source_port = std::str::from_utf8(&read)?;
 
-    let read = read_to(buf, b' ').await?;
+    log::info!("Source port: {}", source_port);
+
+    let read = read_to(buf, CR).await?;
     let destination_port = std::str::from_utf8(&read)?;
 
     log::info!(
@@ -148,11 +150,10 @@ pub async fn parse_v1_protocol(
         .parse()
         .map_err(|err| err_explain!(format!("Error parsing destination port: {}", err)))?;
 
-    let mut next = [0u8; 2];
-    buf.read_exact(&mut next).await?;
+    let next = buf.read_u8().await?;
 
-    log::info!("Next: {:?}", next);
-    if next != [CR, LF] {
+    log::info!("Next: {:?}, {:?}", next, LF);
+    if next == LF {
         throw_explain!("Invalid proxy protocol exit.");
     }
 
