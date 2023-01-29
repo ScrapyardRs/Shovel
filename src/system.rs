@@ -35,6 +35,7 @@ impl Default for SystemRuntime {
 
 pub trait System: Sized + Send + Sync + 'static {
     type CreationDetails;
+    type SplitOff;
 
     fn bootstrap(details: Self::CreationDetails) {
         Self::bootstrap_with_runtime(SystemRuntime::default(), details);
@@ -43,8 +44,8 @@ pub trait System: Sized + Send + Sync + 'static {
     fn bootstrap_with_runtime(
         runtime: SystemRuntime,
         details: Self::CreationDetails,
-    ) -> std::thread::JoinHandle<()> {
-        let mut system = Self::create(details);
+    ) -> (Self::SplitOff, std::thread::JoinHandle<()>) {
+        let (mut system, split_off) = Self::create(details);
         let handle = (runtime.system_thread_builder)()
             .spawn(move || {
                 (runtime.tokio_worker_builder)()
@@ -59,10 +60,10 @@ pub trait System: Sized + Send + Sync + 'static {
                     })
             })
             .unwrap();
-        handle
+        (split_off, handle)
     }
 
-    fn create(details: Self::CreationDetails) -> Self;
+    fn create(details: Self::CreationDetails) -> (Self, Self::SplitOff);
 
     fn tick(&mut self) -> PinnedLivelyResult<()>;
 }
