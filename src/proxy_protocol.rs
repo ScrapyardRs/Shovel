@@ -13,8 +13,8 @@ pub async fn parse_proxy_protocol(
     buf: &mut (impl AsyncRead + Unpin),
 ) -> drax::prelude::Result<ProxyHeader> {
     let mut first_bits = [0u8; 6];
-    log::info!("First bits: {:?}", first_bits);
     buf.read_exact(&mut first_bits).await?;
+    log::info!("First bits: {:?}", first_bits);
     if first_bits == V1_HEADER_BYTES {
         return parse_v1_protocol(buf).await;
     }
@@ -96,8 +96,6 @@ pub async fn parse_v1_protocol(
     let read = read_to(buf, b' ').await?;
     let source = std::str::from_utf8(&read)?;
 
-    skip!(buf, 1);
-
     let read = read_to(buf, b' ').await?;
     let destination = std::str::from_utf8(&read)?;
 
@@ -126,15 +124,25 @@ pub async fn parse_v1_protocol(
             _ => unreachable!(),
         };
 
+    log::info!("Skipping post dst str.");
+
     skip!(buf, 1);
 
     let read = read_to(buf, b' ').await?;
     let source_port = std::str::from_utf8(&read)?;
 
+    log::info!("Skipping post source port read.");
+
     skip!(buf, 1);
 
     let read = read_to(buf, b' ').await?;
     let destination_port = std::str::from_utf8(&read)?;
+
+    log::info!(
+        "Source port: {}, Destination port: {}",
+        source_port,
+        destination_port
+    );
 
     if source_port.starts_with('0') || destination_port.starts_with('0') {
         throw_explain!("Invalid ports; ports must not start with 0.");
@@ -151,6 +159,7 @@ pub async fn parse_v1_protocol(
     let mut next = [0u8; 2];
     buf.read_exact(&mut next).await?;
 
+    log::info!("Next: {:?}", next);
     if next != [CR, LF] {
         throw_explain!("Invalid proxy protocol exit.");
     }
