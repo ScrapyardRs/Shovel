@@ -36,6 +36,7 @@ pub mod phase;
 pub mod server;
 pub mod system;
 pub mod tick;
+pub mod proxy_protocol;
 
 pub type PacketSend = UnboundedSender<Arc<ClientboundPlayRegistry>>;
 

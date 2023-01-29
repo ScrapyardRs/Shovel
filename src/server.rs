@@ -1,3 +1,4 @@
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -14,6 +15,7 @@ use crate::math::create_sorted_coordinates;
 use crate::phase::login::LoginServer;
 use crate::phase::process_handshake;
 use crate::phase::status::StatusBuilder;
+use crate::proxy_protocol::parse_proxy_protocol;
 
 pub struct StatusBuilderWrapper<B> {
     count: Arc<AtomicUsize>,
@@ -52,6 +54,7 @@ pub struct MCServer<F> {
     initial_location: Location,
     compression_threshold: Option<i32>,
     chunk_radius: i32,
+    proxy_protocol: bool,
 }
 
 impl MCServer<()> {
@@ -73,11 +76,17 @@ impl MCServer<()> {
             },
             compression_threshold: None,
             chunk_radius: 8,
+            proxy_protocol: false,
         }
     }
 }
 
 impl<F> MCServer<F> {
+    pub fn enable_proxy_protocol(mut self, enable: bool) -> Self {
+        self.proxy_protocol = enable;
+        self
+    }
+
     pub fn initial_location(mut self, loc: Location) -> Self {
         self.initial_location = loc;
         self
@@ -106,6 +115,7 @@ impl<F> MCServer<F> {
             initial_location: self.initial_location,
             compression_threshold: self.compression_threshold,
             chunk_radius: self.chunk_radius,
+            proxy_protocol: self.proxy_protocol,
         }
     }
 
@@ -125,6 +135,7 @@ impl<F> MCServer<F> {
             initial_location: self.initial_location,
             compression_threshold: self.compression_threshold,
             chunk_radius: self.chunk_radius,
+            proxy_protocol: self.proxy_protocol,
         }
     }
 
@@ -152,6 +163,7 @@ where
             initial_location,
             compression_threshold,
             chunk_radius,
+            proxy_protocol,
         } = self;
 
         let radial_cache = create_sorted_coordinates(chunk_radius);
@@ -171,7 +183,41 @@ where
             let radial_cache = radial_cache.clone();
 
             tokio::spawn(async move {
-                let (read, write) = stream.into_split();
+                let (mut read, write) = stream.into_split();
+
+                let addr = if proxy_protocol {
+                    match parse_proxy_protocol(&mut read).await {
+                        Ok(proxy_protocol::ProxyHeader::Version1 { addresses }) => {
+                            match addresses {
+                                proxy_protocol::version1::ProxyAddresses::Ipv4 {
+                                    source, ..
+                                } => SocketAddr::V4(source),
+                                proxy_protocol::version1::ProxyAddresses::Ipv6 {
+                                    source, ..
+                                } => SocketAddr::V6(source),
+                                _ => addr,
+                            }
+                        }
+                        Ok(proxy_protocol::ProxyHeader::Version2 { addresses, .. }) => {
+                            match addresses {
+                                proxy_protocol::version2::ProxyAddresses::Ipv4 {
+                                    source, ..
+                                } => SocketAddr::V4(source),
+                                proxy_protocol::version2::ProxyAddresses::Ipv6 {
+                                    source, ..
+                                } => SocketAddr::V6(source),
+                                _ => addr,
+                            }
+                        }
+                        Ok(_) => addr,
+                        Err(err) => {
+                            throw_explain!(format!("Error decoding proxy protocol {}", err))
+                        }
+                    }
+                } else {
+                    addr
+                };
+
                 match process_handshake::<L, _, _, _>(status_builder, key_clone, read, write, addr)
                     .await
                 {
@@ -210,6 +256,7 @@ where
                         }
                     }
                 }
+                Ok(())
             });
         }
     }
@@ -260,10 +307,12 @@ macro_rules! status_builder {
     };
 }
 
+// todo move this to a config object which we can derive from a file; or partially
 #[macro_export]
 macro_rules! spawn_server {
     (
         $ctx:expr, $login_server:ty,
+        $(@proxy_protocol $proxy_protocol:expr,)?
         $(@bind $bind:expr,)?
         $(@status $status_builder:expr,)?
         $(@mc_status $mc_status_builder:expr,)?
@@ -273,6 +322,7 @@ macro_rules! spawn_server {
         $client_context_ident:ident, $client_ident:ident -> {$($client_acceptor_tokens:tt)*}
     ) => {
         $crate::server::MCServer::new()
+            $(.proxy_protocol($proxy_protocol))?
             $(.bind($bind.to_string()))?
             $(.build_status($status_builder))?
             $(.build_mc_status($mc_status_builder))?

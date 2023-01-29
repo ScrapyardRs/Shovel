@@ -95,11 +95,6 @@ fn hash_server_id(server_id: &str, shared_secret: &[u8], public_key: &[u8]) -> S
     format!("{bigint:x}")
 }
 
-#[inline]
-fn def_auth_server() -> String {
-    "https://sessionserver.mojang.com".to_string()
-}
-
 enum LoginState {
     ExpectingHello,
     ExpectingKeyResponse {
