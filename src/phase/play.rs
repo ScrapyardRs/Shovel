@@ -339,6 +339,16 @@ impl ConnectedPlayer {
         }
     }
 
+    pub async fn render_proxy_level(&mut self, level: &CachedLevel, proxy: Location) {
+        self.update_location().await;
+        self.chunk_poller_broke_early = self.chunk_loader.poll_radius(
+            f64::floor(proxy.inner_loc.x) as i32 >> 4,
+            f64::floor(proxy.inner_loc.z) as i32 >> 4,
+            &mut self.packets,
+            level,
+        );
+    }
+
     // inventory stuff
     pub fn clear_inventory(&mut self) {
         let forward = self.player_inventory_mut().clear();
