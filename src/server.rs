@@ -221,6 +221,8 @@ where
                     addr
                 };
 
+                log::info!("Client passed! {:?}", addr);
+
                 match process_handshake::<L, _, _, _>(status_builder, key_clone, read, write, addr)
                     .await
                 {

@@ -36,12 +36,15 @@ pub async fn process_handshake<
     client_addr: SocketAddr,
 ) -> drax::prelude::Result<Option<MCConnection<R, W>>> {
     let intention_packet = read.read_packet::<HandshakingRegistry>(None).await?;
+
+    log::info!("Intention packet: {:?}", intention_packet);
     let HandshakingRegistry::ClientIntention {
         protocol_version,
         host_name,
         port,
         intention,
     } = intention_packet;
+
     match intention {
         ConnectionProtocol::Play => {
             throw_explain!("Client attempted to reach play phase via handshake.")
