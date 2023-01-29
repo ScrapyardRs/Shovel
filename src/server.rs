@@ -32,6 +32,16 @@ pub trait MCServerStatusBuilder {
     fn build_status(&self, client_count: usize) -> PinnedLivelyResult<StatusResponse>;
 }
 
+impl<F> MCServerStatusBuilder for F
+where
+    F: Fn(usize) -> StatusResponse,
+    F: Send + Sync,
+{
+    fn build_status(&self, client_count: usize) -> PinnedLivelyResult<StatusResponse> {
+        Box::pin(async move { Ok((self)(client_count)) })
+    }
+}
+
 pub struct MCServer<F> {
     key: Arc<MCPrivateKey>,
     status_builder: Option<Arc<F>>,
