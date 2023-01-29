@@ -153,7 +153,7 @@ pub async fn parse_v1_protocol(
     let next = buf.read_u8().await?;
 
     log::info!("Next: {:?}, {:?}", next, LF);
-    if next == LF {
+    if next != LF {
         throw_explain!("Invalid proxy protocol exit.");
     }
 
