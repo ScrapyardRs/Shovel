@@ -1,4 +1,3 @@
-use openssl::sha::sha1;
 use rand::rngs::OsRng;
 
 pub use rsa::pkcs1v15::VerifyingKey;
@@ -74,5 +73,7 @@ pub fn verify_signature<Hash: FixedOutput + HashMarker + Default>(
 }
 
 pub fn sha1_message(bytes: &[u8]) -> [u8; 20] {
-    sha1(bytes)
+    use md5::Digest;
+    let digest = sha1::Sha1::digest(bytes);
+    digest.into()
 }
