@@ -14,12 +14,10 @@ pub async fn parse_proxy_protocol(
 ) -> drax::prelude::Result<ProxyHeader> {
     let mut first_bits = [0u8; 6];
     buf.read_exact(&mut first_bits).await?;
-    log::info!("First bits: {:?}", first_bits);
     if first_bits == V1_HEADER_BYTES {
         return parse_v1_protocol(buf).await;
     }
     let mut second_bits = [0u8; 6];
-    log::info!("Second bits: {:?}", first_bits);
     buf.read_exact(&mut second_bits).await?;
     let concat = [first_bits, second_bits].concat();
     if concat == V2_HEADER_BYTES {
@@ -56,10 +54,8 @@ pub async fn parse_v1_protocol(
     buf: &mut (impl AsyncRead + Unpin),
 ) -> drax::prelude::Result<ProxyHeader> {
     let step = buf.read_u8().await?;
-    log::info!("Step: {}", step as char);
     let address_family = match step {
         b'T' => {
-            log::info!("Skipping on T");
             skip!(buf, 2);
             let version = buf.read_u8().await?;
             match version {
@@ -69,7 +65,6 @@ pub async fn parse_v1_protocol(
             }
         }
         b'U' => {
-            log::info!("Skipping for U");
             skip!(buf, 6);
             -1
         }
@@ -99,8 +94,6 @@ pub async fn parse_v1_protocol(
     let read = read_to(buf, b' ').await?;
     let destination = std::str::from_utf8(&read)?;
 
-    log::info!("Source: {}, Destination: {}", source, destination);
-
     let (source, destination) =
         match address_family {
             4 => (
@@ -127,16 +120,8 @@ pub async fn parse_v1_protocol(
     let read = read_to(buf, b' ').await?;
     let source_port = std::str::from_utf8(&read)?;
 
-    log::info!("Source port: {}", source_port);
-
     let read = read_to(buf, CR).await?;
     let destination_port = std::str::from_utf8(&read)?;
-
-    log::info!(
-        "Source port: {}, Destination port: {}",
-        source_port,
-        destination_port
-    );
 
     if source_port.starts_with('0') || destination_port.starts_with('0') {
         throw_explain!("Invalid ports; ports must not start with 0.");
@@ -152,7 +137,6 @@ pub async fn parse_v1_protocol(
 
     let next = buf.read_u8().await?;
 
-    log::info!("Next: {:?}, {:?}", next, LF);
     if next != LF {
         throw_explain!("Invalid proxy protocol exit.");
     }
