@@ -59,7 +59,7 @@ pub async fn process_handshake<
                 virtual_port: port,
                 compression_threshold: Some(32767),
             };
-            login::login_client(key, read, write, connection_info)
+            login::login_client::<L, _, _>(key, read, write, connection_info)
                 .await
                 .map(Some)
         }

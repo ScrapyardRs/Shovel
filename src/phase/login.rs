@@ -18,8 +18,8 @@ use crate::crypto::{private_key_to_der, MCPrivateKey};
 use crate::phase::ConnectionInformation;
 
 async fn call_mojang_auth(
-    server: String,
-    route: String,
+    server: &str,
+    route: &str,
     params: String,
 ) -> drax::prelude::Result<GameProfile> {
     let https = HttpsConnectorBuilder::new()
@@ -230,8 +230,8 @@ where
                         .map_err(|_| err_explain!("Failed to decrypt shared secret."))?;
 
                     let profile = call_mojang_auth(
-                        def_auth_server(),
-                        "/session/minecraft/hasJoined".to_string(),
+                        L::url(),
+                        L::route(),
                         format!(
                             "?username={}&serverId={}",
                             &name,
