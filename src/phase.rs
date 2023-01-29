@@ -7,6 +7,7 @@ use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::client::{MCConnection, McPacketReader};
 use crate::crypto::MCPrivateKey;
+use crate::phase::login::LoginServer;
 use crate::phase::status::StatusBuilder;
 
 pub mod login;
@@ -23,6 +24,7 @@ pub struct ConnectionInformation {
 }
 
 pub async fn process_handshake<
+    L: LoginServer,
     F: StatusBuilder,
     R: AsyncRead + Unpin + Send + Sync,
     W: AsyncWrite + Unpin + Send + Sync,

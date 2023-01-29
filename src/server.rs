@@ -11,6 +11,7 @@ use tokio::net::TcpListener;
 use crate::client::{MCConnection, ProcessedPlayer};
 use crate::crypto::MCPrivateKey;
 use crate::math::create_sorted_coordinates;
+use crate::phase::login::LoginServer;
 use crate::phase::process_handshake;
 use crate::phase::status::StatusBuilder;
 
@@ -137,7 +138,7 @@ impl<F> MCServer<F>
 where
     F: StatusBuilder + Send + Sync + 'static,
 {
-    pub async fn spawn<C: Clone + Send + Sync + 'static>(
+    pub async fn spawn<L: LoginServer, C: Clone + Send + Sync + 'static>(
         self,
         client_context: C,
         client_acceptor: fn(C, ProcessedPlayer) -> PinnedResult<()>,
@@ -171,7 +172,9 @@ where
 
             tokio::spawn(async move {
                 let (read, write) = stream.into_split();
-                match process_handshake(status_builder, key_clone, read, write, addr).await {
+                match process_handshake::<L, _, _, _>(status_builder, key_clone, read, write, addr)
+                    .await
+                {
                     Ok(Some(client)) => {
                         let client_name = client.profile.name.clone();
                         // new player added
@@ -260,7 +263,7 @@ macro_rules! status_builder {
 #[macro_export]
 macro_rules! spawn_server {
     (
-        $ctx:expr,
+        $ctx:expr, $login_server:ty,
         $(@bind $bind:expr,)?
         $(@status $status_builder:expr,)?
         $(@mc_status $mc_status_builder:expr,)?
@@ -276,7 +279,7 @@ macro_rules! spawn_server {
             $(.compression_threshold($threshold))?
             $(.initial_location($initial_location))?
             $(.chunk_radius($chunk_radius))?
-            .spawn($ctx, |$client_context_ident, mut $client_ident| {
+            .spawn::<$login_server, _>($ctx, |$client_context_ident, mut $client_ident| {
                 Box::pin(async move {
                     $($client_acceptor_tokens)*
                 })

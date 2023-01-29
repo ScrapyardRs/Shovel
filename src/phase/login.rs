@@ -68,9 +68,9 @@ async fn call_mojang_auth(
             throw_explain!(format!("Mojang failed to auth, {}", res.status()))
         }
 
-        let body = to_bytes(res.into_body()).await.map_err(|err| {
-            err_explain!(format!("Failed to process bytes from response, {err}"))
-        })?;
+        let body = to_bytes(res.into_body())
+            .await
+            .map_err(|err| err_explain!(format!("Failed to process bytes from response, {err}")))?;
 
         let profile: GameProfile = match serde_json::from_slice(&body) {
             Ok(profile) => profile,
@@ -109,7 +109,35 @@ enum LoginState {
     },
 }
 
-pub async fn login_client<R, W>(
+pub trait LoginServer {
+    fn url() -> &'static str;
+
+    fn route() -> &'static str;
+}
+
+pub struct MojangLoginServer;
+impl LoginServer for MojangLoginServer {
+    fn url() -> &'static str {
+        "https://sessionserver.mojang.com"
+    }
+
+    fn route() -> &'static str {
+        "/session/minecraft/hasJoined"
+    }
+}
+
+pub struct MinehutLoginServer;
+impl LoginServer for MinehutLoginServer {
+    fn url() -> &'static str {
+        "https://api.minehut.com"
+    }
+
+    fn route() -> &'static str {
+        "/mitm/proxy/session/minecraft/hasJoined"
+    }
+}
+
+pub async fn login_client<L: LoginServer, R, W>(
     key: Arc<MCPrivateKey>,
     mut read: R,
     mut write: W,
