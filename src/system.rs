@@ -33,6 +33,12 @@ impl Default for SystemRuntime {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
+pub enum TickResult {
+    Continue,
+    Stop,
+}
+
 pub trait System: Sized + Send + Sync + 'static {
     type CreationDetails;
     type SplitOff;
@@ -53,7 +59,7 @@ pub trait System: Sized + Send + Sync + 'static {
                     .unwrap()
                     .block_on(async move {
                         loop {
-                            if system.tick().await.is_err() {
+                            if matches!(system.tick(), TickResult::Stop) {
                                 break;
                             }
                         }
@@ -65,5 +71,5 @@ pub trait System: Sized + Send + Sync + 'static {
 
     fn create(details: Self::CreationDetails) -> (Self, Self::SplitOff);
 
-    fn tick(&mut self) -> PinnedLivelyResult<()>;
+    fn tick(&mut self) -> TickResult;
 }
