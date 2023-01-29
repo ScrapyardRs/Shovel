@@ -322,7 +322,7 @@ macro_rules! spawn_server {
         $client_context_ident:ident, $client_ident:ident -> {$($client_acceptor_tokens:tt)*}
     ) => {
         $crate::server::MCServer::new()
-            $(.proxy_protocol($proxy_protocol))?
+            $(.enable_proxy_protocol($proxy_protocol))?
             $(.bind($bind.to_string()))?
             $(.build_status($status_builder))?
             $(.build_mc_status($mc_status_builder))?
