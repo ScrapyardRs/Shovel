@@ -31,6 +31,9 @@ async fn call_mojang_auth(
     let client = Client::builder().build::<_, Body>(https);
 
     let url = format!("{server}{route}{params}");
+
+    log::debug!("Calling URL for mojang authentication: {url}");
+
     let mut url = url
         .parse::<hyper::Uri>()
         .map_err(|err| err_explain!(format!("Error parsing hyper URI: {err}")))?;
@@ -57,13 +60,13 @@ async fn call_mojang_auth(
                 }
             }
             x if x != 200 => {
-                throw_explain!(format!("Mojang failed to auth, {}", res.status()))
+                throw_explain!(format!("Failed to authenticate, {}", res.status()))
             }
             200 => {}
             _ => {}
         }
         if res.status().as_u16() == 204 {
-            throw_explain!("Mojang failed to auth; No profile found")
+            throw_explain!("Failed to authenticate; No profile found")
         } else if res.status().as_u16() != 200 {
             throw_explain!(format!("Mojang failed to auth, {}", res.status()))
         }
