@@ -26,6 +26,7 @@ macro_rules! empty_light_data {
     };
 }
 
+#[derive(Default)]
 pub struct LevelMediator {
     updates: HashMap<SectionPos, HashMap<BlockPos, i32>>,
 }
