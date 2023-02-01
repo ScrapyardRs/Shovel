@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use mcprotocol::clientbound::play::ClientboundPlayRegistry;
-use mcprotocol::common::chunk::Chunk;
 use mcprotocol::common::play::{BlockPos, BlockUpdate, SectionPos};
 
 use crate::phase::play::ConnectedPlayer;
@@ -33,14 +32,7 @@ pub struct LevelMediator {
 
 impl LevelMediator {
     pub fn update(&mut self, pos: BlockPos, block_id: i32) {
-        let chunk_x = pos.x >> 4;
-        let chunk_z = pos.z >> 4;
-        let section_y = Chunk::section_coord_from(pos.y);
-        let section_pos = SectionPos {
-            x: chunk_x,
-            y: section_y,
-            z: chunk_z,
-        };
+        let section_pos = pos.into();
         if self.updates.contains_key(&section_pos) {
             self.updates
                 .get_mut(&section_pos)
