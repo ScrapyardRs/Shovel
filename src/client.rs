@@ -450,6 +450,12 @@ impl ProcessedPlayer {
                 } {
                     ServerboundPlayRegistry::KeepAlive { keep_alive_id } => {
                         if keep_alive_id == seq {
+                            if tx
+                                .send(ServerboundPlayRegistry::KeepAlive { keep_alive_id })
+                                .is_err()
+                            {
+                                break;
+                            };
                             seq += 1;
                             tokio::spawn(async move {
                                 tokio::time::sleep(Duration::from_secs(1)).await;
