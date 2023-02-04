@@ -273,6 +273,10 @@ pub struct Menu<C: Send + Sync> {
 }
 
 impl<C: Send + Sync> Menu<C> {
+    pub fn container_id(&self) -> u8 {
+        self.container_id
+    }
+
     pub fn incr_state_lock(&mut self) {
         self.state_lock += 1;
     }
@@ -392,7 +396,7 @@ impl<C: Send + Sync> Menu<C> {
         true
     }
 
-    pub fn from_rows<Ch: Into<Chat>>(title: Ch, rows: u8) -> Self {
+    pub fn from_rows<Ch: Into<Chat>>(id: u8, title: Ch, rows: u8) -> Self {
         let container_type = match rows {
             1 => MenuType::Generic9x1,
             2 => MenuType::Generic9x2,
@@ -415,7 +419,7 @@ impl<C: Send + Sync> Menu<C> {
         }
         Self {
             title: title.into(),
-            container_id: 1,
+            container_id: id,
             container_type,
             items,
             state_lock: 0,
