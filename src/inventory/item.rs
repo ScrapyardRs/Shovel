@@ -14,8 +14,12 @@ pub struct ItemBuilder {
 
 impl ItemBuilder {
     pub fn new(item: &str) -> Self {
+        Self::magic(RegistryKey::Items.global(item).unwrap())
+    }
+
+    pub fn magic(item: i32) -> Self {
         Self {
-            item_type: RegistryKey::Items.global(item).unwrap(),
+            item_type: item,
             data: 0,
             count: 1,
             display_name: None,
